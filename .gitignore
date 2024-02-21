@@ -1,0 +1,9 @@
+*.d
+*.so
+*.vscode
+__pycache__
+/*.rtlil
+/*.blif
+/*.v
+/*.cc
+/*.sv
