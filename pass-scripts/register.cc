@@ -148,13 +148,6 @@ struct RegisterRecover : public Pass {
             }
         }
 
-        for (const std::set<RTLIL::Cell*>& reg: registers) {
-            log("Register FFs:\n");
-            for (RTLIL::Cell* ff: reg) {
-                log("%s\n", ff->name.c_str());
-            }
-        }
-
         // Elevate DFF abstraction
         for (const std::set<RTLIL::Cell*>& reg: registers) {
             replace_ff_groups(top, reg, ff_init_vals);
