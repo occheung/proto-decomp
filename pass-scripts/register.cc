@@ -70,7 +70,7 @@ struct RegisterRecover : public Pass {
         FfData ff_data(&ff_init_vals, ff);
 
         std::ostringstream id_name;
-        id_name << ff_data.name.c_str() << "_duped";
+        id_name << ff_data.name.c_str() << "_consolidated";
 
         // Build the higher-level flip flops using the configs of the fine grain ff
         FfData fl_ff_data(ff_data);
