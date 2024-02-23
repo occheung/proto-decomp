@@ -68,46 +68,11 @@ struct RegisterRecover : public Pass {
         RTLIL::Cell* ff = *reg.begin();
 
         FfData ff_data(&ff_init_vals, ff);
-        IdString dff_type;
-
-        dict<IdString, RTLIL::SigSpec> dff_inputs;
-
-        // if (ff_data.has_clk) {
-        //     if (ff_data.has_ce) {
-        //         dff_inputs["EN"] = 
-        //         if (ff_data.has_arst) {
-        //             dff_type = "$adffe";
-        //         } else if (ff_data.has_aload) {
-        //             dff_type = "$aldffe";
-        //         } else if (ff_data.has_sr) {
-        //             dff_type = "$dffsre";
-        //         } else if (ff_data.has_srst) {
-        //             // FIXME: Check polarity priority
-        //             dff_type = "$sdffe";
-        //         } else {
-        //             dff_type = "$dffe";
-        //         }
-        //     } else {
-        //         if (ff_data.has_arst) {
-        //             dff_type = "$adff";
-        //         } else if (ff_data.has_aload) {
-        //             dff_type = "$aldff";
-        //         } else if (ff_data.has_sr) {
-        //             dff_type = "$dffsr";
-        //         } else if (ff_data.has_srst) {
-        //             dff_type = "$sdff";
-        //         } else {
-        //             dff_type = "$dff";
-        //         }
-        //     }
-        // } else {
-        //     // Ignore non flip flops types
-        //     return;
-        // }
 
         std::ostringstream id_name;
         id_name << ff_data.name.c_str() << "_duped";
 
+        // Build the higher-level flip flops using the configs of the fine grain ff
         FfData fl_ff_data(ff_data);
         fl_ff_data.cell = nullptr;
         fl_ff_data.name = id_name.str();
