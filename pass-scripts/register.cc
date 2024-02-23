@@ -93,8 +93,6 @@ struct RegisterRecover : public Pass {
             const SigSpec& sig_q = single_ff_data.sig_q;
             d_pins.insert(d_pins.end(), sig_d.begin(), sig_d.end());
             q_pins.insert(q_pins.end(), sig_q.begin(), sig_q.end());
-
-            // FIXME: async load & init values
             val_arsts.insert(val_arsts.end(), single_ff_data.val_arst.bits.begin(), single_ff_data.val_arst.bits.end());
             val_srsts.insert(val_srsts.end(), single_ff_data.val_srst.bits.begin(), single_ff_data.val_srst.bits.end());
             val_inits.insert(val_inits.end(), single_ff_data.val_init.bits.begin(), single_ff_data.val_init.bits.end());
