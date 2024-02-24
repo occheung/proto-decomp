@@ -23,7 +23,6 @@ struct ValidReadyPass : public Pass {
         const SigMap sigmap(top);
 
         CircuitGraph circuit_graph(sigmap, top);
-        // circuit_graph.print_maps();
 
         FfInitVals ff_init_vals(&sigmap, top);
 
@@ -43,32 +42,23 @@ struct ValidReadyPass : public Pass {
             log("FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
 
-        // Select FFs that has a negative feedback path
-        // The Q port must feed to a NOT cell, and then back to the D port
+        // Select FFs that has a feedback path
+        // Some Q pins must eventually feed to a D pin of the same cell
         std::set<RTLIL::Cell*> self_loop_dffe;
         for (RTLIL::Cell* ff_cell: ff_with_enable) {
-            Source src = circuit_graph.source_map[ff_cell]["\\D"][0];
-            if (std::holds_alternative<RTLIL::SigBit>(src)) {
-                continue;
-            }
-            CellPin src_pin = std::get<CellPin>(src);
-
-            const auto& [src_cell, _src_port_name, _src_pin_idx] = src_pin;
-            std::string src_cell_type_str = src_cell->type.str();
-            if (!src_cell->type.in(ID($_NOT_))) {
-                continue;
-            }
-
-            std::vector<Sink> sinks = circuit_graph.sink_map[ff_cell]["\\Q"][0];
-            for (const Sink& sink: sinks) {
-                if (std::holds_alternative<RTLIL::SigBit>(sink)) {
-                    continue;
+            bool has_path = false;
+            int port_size = GetSize(ff_cell->getPort("\\D"));
+            for (int src_pin_idx = 0; src_pin_idx < port_size; ++src_pin_idx) {
+                for (int sink_pin_idx = 0; sink_pin_idx < port_size; ++sink_pin_idx) {
+                    has_path = !(circuit_graph.get_intermediate_comb_cells(
+                        {ff_cell, "\\Q", src_pin_idx}, {ff_cell, "\\D", sink_pin_idx}).empty());
+                    if (has_path) {
+                        self_loop_dffe.insert(ff_cell);
+                        break;
+                    }
                 }
-                CellPin sink_pin = std::get<CellPin>(sink);
-                const auto& [sink_cell, _sink_port_name, _sink_pin_idx] = sink_pin;
 
-                if (src_cell == sink_cell) {
-                    self_loop_dffe.insert(ff_cell);
+                if (has_path) {
                     break;
                 }
             }
@@ -80,8 +70,14 @@ struct ValidReadyPass : public Pass {
 
         // Find the strongly connected component that involves the D,E pins
         for (RTLIL::Cell* dffe: self_loop_dffe) {
-            std::set<RTLIL::Cell*> scc_set = circuit_graph.get_intermediate_comb_cells(
-                {dffe, "\\Q", 0}, {dffe, "\\E", 0});
+            std::set<RTLIL::Cell*> scc_set;
+            int port_size = GetSize(dffe->getPort("\\Q"));
+            for (int bit_idx = 0; bit_idx < port_size; ++bit_idx) {
+                std::set<RTLIL::Cell*> bit_scc_set = circuit_graph.get_intermediate_comb_cells(
+                    {dffe, "\\Q", bit_idx}, {dffe, "\\EN", 0});
+                scc_set.insert(bit_scc_set.begin(), bit_scc_set.end());
+            }
+
             // Remove dffe from the collected set:
             // We are not interested at it
             scc_set.erase(dffe);
@@ -121,10 +117,10 @@ struct ValidReadyPass : public Pass {
             for (auto src_pin_it = non_scc_sources.begin(); src_pin_it != non_scc_sources.end(); ++src_pin_it) {
                 const auto& [src_cell, src_port, _pin_idx] = src_pin_it->first;
                 log("Cell: %s; Port: %s\n", src_cell->name.c_str(), src_port.c_str());
-                std::set<CellPin> dominated_pins = circuit_graph.get_dominated_pins(src_pin_it->first, {dffe, "\\E", 0});
+                std::set<CellPin> dominated_pins = circuit_graph.get_dominated_pins(src_pin_it->first, {dffe, "\\EN", 0});
 
                 // Remove the dffe pin. We know for sure it is in the domination set.
-                dominated_pins.erase({dffe, "\\E", 0});
+                dominated_pins.erase({dffe, "\\EN", 0});
                 // Remove the source itself. It does not help solving the dominance problem.
                 dominated_pins.erase(src_pin_it->first);
 
