@@ -70,6 +70,7 @@ struct ValidReadyPass : public Pass {
 
         // Find the strongly connected component that involves the D,E pins
         for (RTLIL::Cell* dffe: self_loop_dffe) {
+            log("Suspected state register: %s\n", dffe->name.c_str());
             std::set<RTLIL::Cell*> scc_set;
             int port_size = GetSize(dffe->getPort("\\Q"));
             for (int bit_idx = 0; bit_idx < port_size; ++bit_idx) {
@@ -83,7 +84,7 @@ struct ValidReadyPass : public Pass {
             scc_set.erase(dffe);
 
             for (RTLIL::Cell* scc_cell: scc_set) {
-                log("Cell %s, type: %s\n", scc_cell->name.c_str(), scc_cell->type.c_str());
+                log("SCC Cell %s, type: %s\n", scc_cell->name.c_str(), scc_cell->type.c_str());
             }
 
             // Find the drivers of the SCC set
