@@ -51,11 +51,6 @@ struct ValidReadyPass : public Pass {
             }
         }
 
-        log("FF with clock enable:\n");
-        for (RTLIL::Cell* ff_cell: ff_with_enable) {
-            log("FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
-        }
-
         // Select FFs that has a feedback path
         // Some Q pins must eventually feed to a D pin of the same cell
         std::set<RTLIL::Cell*> self_loop_dffe;
