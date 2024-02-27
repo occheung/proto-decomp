@@ -187,20 +187,18 @@ struct CircuitGraph {
     }
 
     void print_maps() const {
-        // ostringstream oss;
         for (const auto& [output_cell, out_port_dict]: this->sink_map) {
             log("From cell %s\n", output_cell->name.c_str());
-            // oss << output_cell->name << "\n";
             for (const auto& [output_port, sink_lists]: out_port_dict) {
-                for (int port_idx = 0; port_idx < sink_lists.size(); ++port_idx) {
+                for (size_t port_idx = 0; port_idx < sink_lists.size(); ++port_idx) {
                     const auto& sink_list = sink_lists[port_idx];
                     for (const Sink& sink: sink_list) {
                         if (std::holds_alternative<CellPin>(sink)) {
                             const auto& [sink_cell, sink_port, sink_idx] = std::get<CellPin>(sink);
-                            log("%s[%d] -> %s.%s[%d]\n", output_port.c_str(), port_idx, sink_cell->name.c_str(), sink_port.c_str(), sink_idx);
+                            log("%s[%ld] -> %s.%s[%d]\n", output_port.c_str(), port_idx, sink_cell->name.c_str(), sink_port.c_str(), sink_idx);
                         } else {
                             const RTLIL::SigBit& sink_bit = std::get<RTLIL::SigBit>(sink);
-                            log("%s[%d] -> OUTPUT:%d[%d]\n", output_port.c_str(), port_idx, sink_bit.wire->port_id, sink_bit.offset);
+                            log("%s[%ld] -> OUTPUT:%d[%d]\n", output_port.c_str(), port_idx, sink_bit.wire->port_id, sink_bit.offset);
                         }
                     }
                 }
