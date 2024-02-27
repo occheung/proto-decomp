@@ -124,8 +124,13 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            // Filter off the dffe Q pin
-            non_scc_sources.erase({dffe, "\\Q", 0});
+            // Filter off the dffe Q pins
+            {
+                int q_port_size = GetSize(dffe->getPort("\\Q"));
+                for (int pin_idx = 0; pin_idx < q_port_size; ++pin_idx) {
+                    non_scc_sources.erase({dffe, "\\Q", pin_idx});
+                }
+            }
 
             // Compute the intermediate nodes for all paths from any sources
             // to port E
@@ -258,10 +263,13 @@ struct ValidReadyPass : public Pass {
             for (const CellPin& potential_rdy_bit: non_dominated_sources) {
                 std::set<RTLIL::Cell*> cell_intersections;
                 for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                    std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
-                        {inter_dff, "\\Q", 0}, potential_rdy_bit);
-                    log("Path length: %ld\n", cells_in_path.size());
-                    cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
+                    // Try all Q pins
+                    int q_port_size = GetSize(inter_dff->getPort("\\Q"));
+                    for (int q_idx = 0; q_idx < q_port_size; ++q_idx) {
+                        std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
+                            {inter_dff, "\\Q", q_idx}, potential_rdy_bit);
+                        cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
+                    }
                 }
                 if (!cell_intersections.empty()) {
                     rdy_candidates.insert(potential_rdy_bit);
