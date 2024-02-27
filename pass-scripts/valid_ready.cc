@@ -9,10 +9,24 @@
 USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
+
+bool PASS_DEBUG = 0;
+#define LOG(...) {if (PASS_DEBUG) { log(__VA_ARGS__); } else {}}
+
 struct ValidReadyPass : public Pass {
     ValidReadyPass() : Pass("valid_ready") { }
 
-    void execute(vector<string>, Design *design) override {
+    void execute(vector<string> args, Design *design) override {
+        if (args.size() > 1) {
+            if (args[1] == "-debug") {
+                PASS_DEBUG = 1;
+            } else {
+                PASS_DEBUG = 0;
+            }
+        } else {
+            PASS_DEBUG = 0;
+        }
+
         RTLIL::Module* top = design->top_module();
 
         if (top == nullptr) {
@@ -65,7 +79,7 @@ struct ValidReadyPass : public Pass {
         }
 
         for (RTLIL::Cell* ff_cell: self_loop_dffe) {
-            log("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
+            LOG("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
 
         // Find the strongly connected component that involves the D,E pins
@@ -84,7 +98,7 @@ struct ValidReadyPass : public Pass {
             scc_set.erase(dffe);
 
             for (RTLIL::Cell* scc_cell: scc_set) {
-                log("SCC Cell %s, type: %s\n", scc_cell->name.c_str(), scc_cell->type.c_str());
+                LOG("SCC Cell %s, type: %s\n", scc_cell->name.c_str(), scc_cell->type.c_str());
             }
 
             // Find the drivers of the SCC set
@@ -117,7 +131,7 @@ struct ValidReadyPass : public Pass {
             // to port E
             for (auto src_pin_it = non_scc_sources.begin(); src_pin_it != non_scc_sources.end(); ++src_pin_it) {
                 const auto& [src_cell, src_port, _pin_idx] = src_pin_it->first;
-                log("Cell: %s; Port: %s\n", src_cell->name.c_str(), src_port.c_str());
+                LOG("Cell: %s; Port: %s\n", src_cell->name.c_str(), src_port.c_str());
                 std::set<CellPin> dominated_pins = circuit_graph.get_dominated_pins(src_pin_it->first, {dffe, "\\EN", 0});
 
                 // Remove the dffe pin. We know for sure it is in the domination set.
@@ -127,7 +141,7 @@ struct ValidReadyPass : public Pass {
 
                 for (const CellPin& pin: dominated_pins) {
                     const auto& [dom_cell, dom_port, _dom_pin_idx] = pin;
-                    log("Dominated pin: Cell: %s; Port: %s\n", dom_cell->name.c_str(), dom_port.c_str());
+                    LOG("Dominated pin: Cell: %s; Port: %s\n", dom_cell->name.c_str(), dom_port.c_str());
                 }
 
                 src_pin_it->second = dominated_pins;
@@ -158,9 +172,9 @@ struct ValidReadyPass : public Pass {
                     }
                 }
 
-                log("Cell %s\n", std::get<0>(src_pin)->name.c_str());
+                LOG("Cell %s\n", std::get<0>(src_pin)->name.c_str());
                 for (const auto& [port, dominated]: pin_dominance) {
-                    log("Port %s dominance: %s\n", port.c_str(), dominated? "true": "false");
+                    LOG("Port %s dominance: %s\n", port.c_str(), dominated? "true": "false");
                     if (!dominated) {
                         non_dominated_sources.insert(src_pin);
                     }
@@ -168,7 +182,7 @@ struct ValidReadyPass : public Pass {
             }
 
             for (const auto& [cell, port, _idx]: non_dominated_sources) {
-                log("Non dominated cell: %s; Port: %s\n", cell->name.c_str(), port.c_str());
+                LOG("Non dominated cell: %s; Port: %s\n", cell->name.c_str(), port.c_str());
             }
 
             // Attempt to find a path that goes through exactly 1 DFF
@@ -234,9 +248,9 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            log("Viable 1-hop intermeediate DFF:\n");
+            LOG("Viable 1-hop intermeediate DFF:\n");
             for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                log("%s\n", inter_dff->name.c_str());
+                LOG("%s\n", inter_dff->name.c_str());
             }
             
             // Determine which non-SCC source is related to ready bit
