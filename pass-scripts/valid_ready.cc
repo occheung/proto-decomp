@@ -77,6 +77,14 @@ struct ValidReadyPass : public Pass {
             LOG("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
 
+        // Highlighted AND gate collections
+        // Collect AND gate that fans into a FSM without SCC
+        // The fan-ins of the AND gate are likely valid and ready bits
+        std::set<std::pair<CellPin, CellPin>> and_gates_inputs;
+
+        // Store potential valid/ready bits of the entire circuit
+        std::set<CellPin> ctrl_candidates;
+
         // Find the strongly connected component that involves the D,E pins
         for (RTLIL::Cell* dffe: self_loop_dffe) {
             log("Suspected state register: %s\n", dffe->name.c_str());
@@ -100,6 +108,17 @@ struct ValidReadyPass : public Pass {
                     if (en_src_cell->type == ID($_AND_)) {
                         LOG("DFFE does not have a SCC, but it has a direct AND gate\n");
                         scc_set.insert(en_src_cell);
+
+                        // Store the AND gate's fan in logics, if both of them are connected pins
+                        // We do not consider the case where valid/ready bits are undriven (external)
+                        const Source& a_src = circuit_graph.source_map[en_src_cell]["\\A"][0];
+                        const Source& b_src = circuit_graph.source_map[en_src_cell]["\\B"][0];
+
+                        if (std::holds_alternative<CellPin>(a_src) && std::holds_alternative<CellPin>(b_src)) {
+                            and_gates_inputs.insert(std::make_pair(
+                                std::get<CellPin>(a_src),
+                                std::get<CellPin>(b_src)));
+                        }
                     }
                 }
             }
@@ -260,13 +279,13 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            LOG("Viable 1-hop intermeediate DFF:\n");
+            log("Viable 1-hop intermediate DFF:\n");
             for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                LOG("%s\n", inter_dff->name.c_str());
+                log("%s\n", inter_dff->name.c_str());
             }
             
             // Determine which non-SCC source is related to ready bit
-            std::set<CellPin> rdy_candidates;
+            std::set<CellPin> reg_ctrl_candidates;
             for (const CellPin& potential_rdy_bit: non_dominated_sources) {
                 std::set<RTLIL::Cell*> cell_intersections;
                 for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
@@ -279,16 +298,39 @@ struct ValidReadyPass : public Pass {
                     }
                 }
                 if (!cell_intersections.empty()) {
-                    rdy_candidates.insert(potential_rdy_bit);
+                    reg_ctrl_candidates.insert(potential_rdy_bit);
                 }
             }
 
+            // Save to global set
+            ctrl_candidates.insert(reg_ctrl_candidates.begin(), reg_ctrl_candidates.end());
+
             // Save the candidates to a yosys set
-            log("Found %ld ready bit candidate\n", rdy_candidates.size());
-            for (const CellPin& candidate_pin: rdy_candidates) {
+            log("Found %ld control bit candidate\n", reg_ctrl_candidates.size());
+            for (const CellPin& candidate_pin: reg_ctrl_candidates) {
                 log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
             }
+            log("\n");
         }
+
+        // Process AND gates that feed into registers EN port,
+        // while the corresponding register does not have a SCC
+        std::set<CellPin> additional_ctrls;
+        for (const auto& [a_pin, b_pin]: and_gates_inputs) {
+            // TODO: Do I worry about potential self-inference?
+            if (ctrl_candidates.count(a_pin)) {
+                additional_ctrls.insert(b_pin);
+            } else if (ctrl_candidates.count(b_pin)) {
+                additional_ctrls.insert(a_pin);
+            }
+        }
+
+        ctrl_candidates.insert(additional_ctrls.begin(), additional_ctrls.end());
+        log("Found %ld control bits in total\n", ctrl_candidates.size());
+        for (const CellPin& candidate_pin: ctrl_candidates) {
+            log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
+        }
+
     }
 } ValidReadyPass;
 
