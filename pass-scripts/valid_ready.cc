@@ -97,6 +97,18 @@ struct ValidReadyPass : public Pass {
             // We are not interested at it
             scc_set.erase(dffe);
 
+            // If the SCC is empty, and EN is connected to an AND gate, add the AND gate
+            if (scc_set.empty()) {
+                const Source& en_src = circuit_graph.source_map[dffe]["\\EN"][0];
+                if (std::holds_alternative<CellPin>(en_src)) {
+                    RTLIL::Cell* en_src_cell = std::get<0>(std::get<CellPin>(en_src));
+                    if (en_src_cell->type == ID($_AND_)) {
+                        LOG("DFFE does not have a SCC, but it has a direct AND gate\n");
+                        scc_set.insert(en_src_cell);
+                    }
+                }
+            }
+
             for (RTLIL::Cell* scc_cell: scc_set) {
                 LOG("SCC Cell %s, type: %s\n", scc_cell->name.c_str(), scc_cell->type.c_str());
             }
