@@ -281,6 +281,12 @@ struct ValidReadyPass : public Pass {
                     continue;
                 }
 
+                // The looped-in DFFE should also control a valid/ready bit
+                // by symmetry
+                if (self_loop_dffe.count(dffe_src) == 0) {
+                    continue;
+                }
+
                 if (dffe_sinks.count(dffe_src)) {
                     viable_intermediate_dffes.insert(dffe_src);
                 }
