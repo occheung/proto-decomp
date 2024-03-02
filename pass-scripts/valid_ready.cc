@@ -267,48 +267,69 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            std::set<RTLIL::Cell*> viable_intermediate_dffs;
+            std::set<RTLIL::Cell*> viable_intermediate_dffes;
             for (RTLIL::Cell* dffe_src: dffe_sources) {
                 // Not interested in self-loop 1-hop
                 if (dffe_src == dffe) {
                     continue;
                 }
 
+                // Not interested in intermediate DFF that lacks clock enable
+                // We hypothesized the valid/ready bits shoudl drive the enable pins
+                FfData ff_data(&ff_init_vals, dffe_src);
+                if (!ff_data.has_ce) {
+                    continue;
+                }
+
                 if (dffe_sinks.count(dffe_src)) {
-                    viable_intermediate_dffs.insert(dffe_src);
+                    viable_intermediate_dffes.insert(dffe_src);
                 }
             }
 
-            log("Viable 1-hop intermediate DFF:\n");
-            for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                log("%s\n", inter_dff->name.c_str());
+            log("Viable 1-hop intermediate DFFE:\n");
+            for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
+                log("%s\n", inter_dffe->name.c_str());
             }
             
             // Determine which non-SCC source is related to ready bit
-            std::set<CellPin> reg_ctrl_candidates;
+            dict<CellPin, std::set<RTLIL::Cell*>> reg_ctrl_candidates;
             for (const CellPin& potential_rdy_bit: non_dominated_sources) {
                 std::set<RTLIL::Cell*> cell_intersections;
-                for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
+                dict<CellPin, std::set<RTLIL::Cell*>> rdy_srcs; 
+                for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
                     // Try all Q pins
-                    int q_port_size = GetSize(inter_dff->getPort("\\Q"));
+                    int q_port_size = GetSize(inter_dffe->getPort("\\Q"));
                     for (int q_idx = 0; q_idx < q_port_size; ++q_idx) {
                         std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
-                            {inter_dff, "\\Q", q_idx}, potential_rdy_bit);
+                            {inter_dffe, "\\Q", q_idx}, potential_rdy_bit);
                         cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
+                        if (!cells_in_path.empty()) {
+                            if (rdy_srcs.count(potential_rdy_bit) == 0) {
+                                rdy_srcs[potential_rdy_bit] = {};
+                            }
+                            rdy_srcs[potential_rdy_bit].insert(inter_dffe);
+                        }
                     }
                 }
                 if (!cell_intersections.empty()) {
-                    reg_ctrl_candidates.insert(potential_rdy_bit);
+                    // reg_ctrl_candidates.insert(potential_rdy_bit);
+                    reg_ctrl_candidates[potential_rdy_bit] = rdy_srcs[potential_rdy_bit];
                 }
             }
 
             // Save to global set
-            ctrl_candidates.insert(reg_ctrl_candidates.begin(), reg_ctrl_candidates.end());
+            for (const auto& [ctrl_bit, _inter_dff_set]: reg_ctrl_candidates) {
+                ctrl_candidates.insert(ctrl_bit);
+            }
 
             // Save the candidates to a yosys set
             log("Found %ld control bit candidate\n", reg_ctrl_candidates.size());
-            for (const CellPin& candidate_pin: reg_ctrl_candidates) {
-                log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
+            for (const auto& [candidate_pin, inter_dff_set]: reg_ctrl_candidates) {
+                log("Cell %s; Port %s from DFF ", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
+                for (const RTLIL::Cell* dff: inter_dff_set) {
+                    log("%s, ", dff->name.c_str());
+                }
+                log("\n");
             }
             log("\n");
         }
