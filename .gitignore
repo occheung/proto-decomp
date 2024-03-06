@@ -7,3 +7,4 @@ __pycache__
 /*.v
 /*.cc
 /*.sv
+/hdl/lib/*
