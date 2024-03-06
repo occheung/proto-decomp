@@ -1,0 +1,180 @@
+diff --git a/passes/opt/opt_dff.cc b/passes/opt/opt_dff.cc
+index f090d20b2..254945b5b 100644
+--- a/passes/opt/opt_dff.cc
++++ b/passes/opt/opt_dff.cc
+@@ -29,6 +29,7 @@
+ #include "passes/techmap/simplemap.h"
+ #include <stdio.h>
+ #include <stdlib.h>
++#include <numeric>
+ 
+ USING_YOSYS_NAMESPACE
+ PRIVATE_NAMESPACE_BEGIN
+@@ -581,83 +582,110 @@ struct OptDffWorker
+ 			// The cell has been simplified as much as possible already.  Now try to spice it up with enables / sync resets.
+ 			if (ff.has_clk && ff.sig_d != ff.sig_q) {
+ 				if (!ff.has_arst && !ff.has_sr && (!ff.has_srst || !ff.has_ce || ff.ce_over_srst) && !opt.nosdff) {
++					ctrls_t resets;
++
+ 					// Try to merge sync resets.
+-					std::map<ctrls_t, std::vector<int>> groups;
+-					std::vector<int> remaining_indices;
+-					Const val_srst;
++					Const val_srst(State::Sx, ff.width);
++					if (ff.has_srst) {
++						val_srst = ff.val_srst;
++					}
+ 
+-					for (int i = 0 ; i < ff.width; i++) {
+-						ctrls_t resets;
+-						State reset_val = State::Sx;
+-						if (ff.has_srst)
+-							reset_val = ff.val_srst[i];
+-						while (bit2mux.count(ff.sig_d[i]) && bitusers[ff.sig_d[i]] == 1) {
+-							cell_int_t mbit = bit2mux.at(ff.sig_d[i]);
+-							if (GetSize(mbit.first->getPort(ID::S)) != 1)
++					// Transverse upward the MUX tree
++					// Set reset value if a good one is found, else attempt to create disjunctive resets
++					// Keep registers intact. Do not divide registers by inferring different SRST
++					while (bit2mux.count(ff.sig_d[0]) && bitusers[ff.sig_d[0]] == 1) {
++						// Avoid $pmux induced one-hot S
++						auto [mux_0, mux_0_pin_idx] = bit2mux.at(ff.sig_d[0]);
++
++						if (GetSize(mux_0->getPort(ID::S)) != 1) {
++							break;
++						}
++
++						// Find driver MUXes, all MUXes found should use the same select signal
++						// The MUXes should all uniquely drive the corresponding DFF pins
++						std::vector<Cell*> muxes = { mux_0 };
++						std::vector<SigBit> a_bits = { mux_0->getPort(ID::A)[mux_0_pin_idx] };
++						std::vector<SigBit> b_bits = { mux_0->getPort(ID::B)[mux_0_pin_idx] };
++
++						bool has_compatible_mux_driver = true;
++						for (int i = 1; i < ff.width; ++i) {
++							if (bit2mux.count(ff.sig_d[i]) == 0 || bitusers[ff.sig_d[i]] != 1) {
++								has_compatible_mux_driver = false;
+ 								break;
+-							SigBit s = mbit.first->getPort(ID::S);
+-							SigBit a = mbit.first->getPort(ID::A)[mbit.second];
+-							SigBit b = mbit.first->getPort(ID::B)[mbit.second];
+-							// Workaround for funny memory WE pattern.
+-							if ((a == State::S0 || a == State::S1) && (b == State::S0 || b == State::S1))
++							}
++
++							auto [mux_i, mux_i_pin_idx] = bit2mux.at(ff.sig_d[i]);
++							if (GetSize(mux_i->getPort(ID::S)) != 1) {
++								has_compatible_mux_driver = false;
+ 								break;
+-							if ((b == State::S0 || b == State::S1) && (b == reset_val || reset_val == State::Sx)) {
+-								// This is better handled by CE pattern.
+-								if (a == ff.sig_q[i])
+-									break;
+-								reset_val = b.data;
+-								resets.insert(ctrl_t(s, true));
+-								ff.sig_d[i] = a;
+-							} else if ((a == State::S0 || a == State::S1) && (a == reset_val || reset_val == State::Sx)) {
+-								// This is better handled by CE pattern.
+-								if (b == ff.sig_q[i])
+-									break;
+-								reset_val = a.data;
+-								resets.insert(ctrl_t(s, false));
+-								ff.sig_d[i] = b;
+-							} else {
++							}
++							SigBit s_i = sigmap(mux_i->getPort(ID::S));
++							if (s_i != sigmap(muxes[0]->getPort(ID::S))) {
++								has_compatible_mux_driver = false;
+ 								break;
+ 							}
++
++							muxes.push_back(mux_i);
++							a_bits.push_back(mux_i->getPort(ID::A)[mux_i_pin_idx]);
++							b_bits.push_back(mux_i->getPort(ID::B)[mux_i_pin_idx]);
+ 						}
+ 
+-						if (!resets.empty()) {
+-							if (ff.has_srst)
+-								resets.insert(ctrl_t(ff.sig_srst, ff.pol_srst));
+-							groups[resets].push_back(i);
+-						} else
+-							remaining_indices.push_back(i);
+-						val_srst.bits.push_back(reset_val);
+-					}
++						if (!has_compatible_mux_driver) {
++							break;
++						}
++						SigBit s = sigmap(muxes[0]->getPort(ID::S));
++						SigSpec sig_a(a_bits);
++						SigSpec sig_b(b_bits);
+ 
+-					for (auto &it : groups) {
+-						FfData new_ff = ff.slice(it.second);
+-						new_ff.val_srst = Const();
+-						for (int i = 0; i < new_ff.width; i++) {
+-							int j = it.second[i];
+-							new_ff.val_srst.bits.push_back(val_srst[j]);
++						// Workaround for funny memory WE pattern.
++						if (sig_a.is_fully_def() && sig_b.is_fully_def()) {
++							break;
++						}
++						if (sig_b.is_fully_def() && (sig_b.as_const() == val_srst || val_srst == Const(State::Sx, ff.width))) {
++							// This is better handled by CE pattern.
++							if (sigmap(sig_a) == sigmap(ff.sig_q))
++								break;
++							val_srst = sig_b.as_const();
++							resets.insert(ctrl_t(s, true));
++							ff.sig_d = sig_a;
++						} else if (sig_a.is_fully_def() && (sig_a.as_const() == val_srst || val_srst == Const(State::Sx, ff.width))) {
++							// This is better handled by CE pattern.
++							if (sigmap(sig_b) == sigmap(ff.sig_q))
++								break;
++							val_srst = sig_a.as_const();
++							resets.insert(ctrl_t(s, false));
++							ff.sig_d = sig_b;
++						} else {
++							break;
+ 						}
+-						ctrl_t srst = combine_resets(it.first, ff.is_fine);
++					}
++
++					if (!resets.empty()) {
++						if (ff.has_srst)
++							resets.insert(ctrl_t(ff.sig_srst, ff.pol_srst));
++						
++						std::vector<int> all_bits_slice(ff.width);
++						std::iota(all_bits_slice.begin(), all_bits_slice.end(), 0);
++
++						FfData new_ff = ff.slice(all_bits_slice);
++						new_ff.val_srst = val_srst;
++
++						ctrl_t srst = combine_resets(resets, ff.is_fine);
+ 
+ 						new_ff.has_srst = true;
+ 						new_ff.sig_srst = srst.first;
+ 						new_ff.pol_srst = srst.second;
+ 						if (new_ff.has_ce)
+ 							new_ff.ce_over_srst = true;
+-						Cell *new_cell = new_ff.emit();
+-						if (new_cell)
+-							dff_cells.push_back(new_cell);
++						ff.remove();
++						Cell* new_cell = new_ff.emit();
++						dff_cells.push_back(new_cell);
++
+ 						log("Adding SRST signal on %s (%s) from module %s (D = %s, Q = %s, rval = %s).\n",
+-								log_id(cell), log_id(cell->type), log_id(module), log_signal(new_ff.sig_d), log_signal(new_ff.sig_q), log_signal(new_ff.val_srst));
+-					}
++								log_id(new_cell), log_id(cell->type), log_id(module), log_signal(new_ff.sig_d), log_signal(new_ff.sig_q), log_signal(new_ff.val_srst));
+ 
+-					if (remaining_indices.empty()) {
+-						module->remove(cell);
+ 						did_something = true;
+ 						continue;
+-					} else if (GetSize(remaining_indices) != ff.width) {
+-						ff = ff.slice(remaining_indices);
+-						ff.cell = cell;
+-						changed = true;
+ 					}
+ 				}
+ 				if ((!ff.has_srst || !ff.has_ce || !ff.ce_over_srst) && !opt.nodffe) {

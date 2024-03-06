@@ -6,6 +6,8 @@ let
         makeFlags = oa.makeFlags ++ [ "ENABLE_LIBYOSYS=1" "CXXSTD=c++17" ];
         # We actually don't need ENABLE_LIBYOSYS
 
+        patches = oa.patches ++ [ ./opt_sdff.patch ];
+
         doCheck = false;
     });
 
