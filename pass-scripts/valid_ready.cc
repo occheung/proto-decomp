@@ -101,8 +101,42 @@ struct ValidReadyPass : public Pass {
             scc_set.erase(dffe);
 
             // If the SCC is empty, and EN is connected to an AND gate, add the AND gate
+            // However, should ce_over_srst be enabled, there should be an OR gate
+            // that routes the SRST signal to CE through it, else SRST is disabled
+            // unconditionally.
             if (scc_set.empty()) {
-                const Source& en_src = circuit_graph.source_map[dffe]["\\EN"][0];
+                // Find the FfData
+                Source en_src;
+                FfData dffe_data(&ff_init_vals, dffe);
+                if (dffe_data.has_srst && dffe_data.ce_over_srst) {
+                    const Source& ce_src = circuit_graph.source_map[dffe]["\\EN"][0];
+                    if (std::holds_alternative<RTLIL::SigBit>(ce_src)) {
+                        // FF cannot be a state register of interest if its CE is
+                        // solely tied to const or external
+                        continue;
+                    }
+                    RTLIL::Cell* ce_src_or_cell = std::get<0>(std::get<CellPin>(ce_src));
+                    if (ce_src_or_cell->type != ID($_OR_)) {
+                        // FIXME: De Morgan
+                        continue;
+                    }
+                    const Source& srst_src = circuit_graph.source_map[dffe]["\\SRST"][0];
+                    const Source& or_a = circuit_graph.source_map[ce_src_or_cell]["\\A"][0];
+                    const Source& or_b = circuit_graph.source_map[ce_src_or_cell]["\\B"][0];
+
+                    // One _OR_ source must match SRST source
+                    if (srst_src == or_a) {
+                        en_src = or_b;
+                    } else if (srst_src == or_b) {
+                        en_src = or_a;
+                    } else {
+                        // FIXME: Pin logic ordering...
+                        continue;
+                    }
+                } else {
+                    en_src = circuit_graph.source_map[dffe]["\\EN"][0];
+                }
+                // const Source& en_src = circuit_graph.source_map[dffe]["\\EN"][0];
                 if (std::holds_alternative<CellPin>(en_src)) {
                     RTLIL::Cell* en_src_cell = std::get<0>(std::get<CellPin>(en_src));
                     if (en_src_cell->type == ID($_AND_)) {
@@ -118,6 +152,12 @@ struct ValidReadyPass : public Pass {
                             and_gates_inputs.insert(std::make_pair(
                                 std::get<CellPin>(a_src),
                                 std::get<CellPin>(b_src)));
+                            LOG("Adding Cell %s Port %s, Cell %s Port %s into AND check list\n",
+                                std::get<0>(std::get<CellPin>(a_src))->name.c_str(),
+                                std::get<1>(std::get<CellPin>(a_src)).c_str(),
+                                std::get<0>(std::get<CellPin>(b_src))->name.c_str(),
+                                std::get<1>(std::get<CellPin>(b_src)).c_str()
+                            );
                         }
                     }
                 }
