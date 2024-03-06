@@ -387,6 +387,9 @@ struct ValidReadyPass : public Pass {
             // TODO: Do I worry about potential self-inference?
             if (ctrl_candidates.count(a_pin)) {
                 additional_ctrls.insert(b_pin);
+                LOG("Found Cell %s Port %s in candidates; inferring Cell %s Port %s\n", 
+                    std::get<0>(a_pin)->name.c_str(), std::get<1>(a_pin).c_str(),
+                    std::get<0>(b_pin)->name.c_str(), std::get<1>(b_pin).c_str());
             } else if (ctrl_candidates.count(b_pin)) {
                 additional_ctrls.insert(a_pin);
             }
