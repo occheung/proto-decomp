@@ -132,7 +132,7 @@ struct RegisterRecover : public Pass {
             if (RTLIL::builtin_ff_cell_types().count(ff_cell->type)) {
                 // Either add this flip-flop to some existing register
                 bool matched = false;
-                for (int reg_idx = 0; reg_idx < registers.size(); ++reg_idx) {
+                for (size_t reg_idx = 0; reg_idx < registers.size(); ++reg_idx) {
                     if (this->groupable(ff_init_vals, sigmap, *registers[reg_idx].begin(), ff_cell)) {
                         matched = true;
                         registers[reg_idx].insert(ff_cell);
