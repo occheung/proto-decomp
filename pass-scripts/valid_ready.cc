@@ -77,8 +77,43 @@ struct ValidReadyPass : public Pass {
             }
         }
 
+        // Consider each self looping register:
+        // Could bits in the same register influence other bits?
+        std::set<RTLIL::Cell*> independent_dffes;
+        for (RTLIL::Cell* dffe: self_loop_dffe) {
+            int dffe_width = GetSize(dffe->getPort("\\Q"));
+
+            bool cross_influence = false;
+            for (int i = 0; i < dffe_width; ++i) {
+                for (int j = 0; j < dffe_width; ++j) {
+                    if (i == j) {
+                        // We do not care about direct paths (Q[i] -> D[i])
+                        continue;
+                    }
+                    // Find a path from Q[i] to D[j]
+                    std::set<RTLIL::Cell*> connected_cells = circuit_graph.get_intermediate_comb_cells(
+                        {dffe, "\\Q", i},
+                        {dffe, "\\D", j}
+                    );
+                    if (!connected_cells.empty()) {
+                        cross_influence = true;
+                        break;
+                    }
+                }
+
+                if (cross_influence) {
+                    break;
+                }
+            }
+
+            if (!cross_influence && dffe_width > 1) {
+                LOG("DFFE %s is not a FSM\n", log_id(dffe));
+                independent_dffes.insert(dffe);
+            }
+        }
+
         for (RTLIL::Cell* ff_cell: self_loop_dffe) {
-            LOG("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
+            log("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
 
         // Highlighted AND gate collections
