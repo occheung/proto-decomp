@@ -179,8 +179,32 @@ struct RegisterRecover : public Pass {
             }
         }
 
+        // Evaluate flip flop groupings
+        // Split flip flops by external sinks (which excludes FF sinks not within the register)
+        std::vector<std::set<RTLIL::Cell*>> split_up_registers;
+        for (std::set<RTLIL::Cell*> reg_ffs: registers) {
+            std::map<std::set<RTLIL::Cell*>, std::set<RTLIL::Cell*>> sink_ffs_map;
+            for (RTLIL::Cell* ff_cell: reg_ffs) {
+                std::set<RTLIL::Cell*> sinks = circuit_graph.dff_sink_graph[ff_cell];
+                // External sinks only
+                // TODO: Should we distinguish sinks by proposed register sets?
+                for (RTLIL::Cell* ff_cell_clone: reg_ffs) {
+                    sinks.erase(ff_cell_clone);
+                }
+
+                if (sink_ffs_map.count(sinks) == 0) {
+                    sink_ffs_map[sinks] = {};
+                }
+                sink_ffs_map[sinks].insert(ff_cell);
+            }
+
+            for (auto [ext_ff_sinks, new_reg_ffs]: sink_ffs_map) {
+                split_up_registers.push_back(new_reg_ffs);
+            }
+        }
+
         // Elevate DFF abstraction
-        for (const std::set<RTLIL::Cell*>& reg: registers) {
+        for (const std::set<RTLIL::Cell*>& reg: split_up_registers) {
             replace_ff_groups(top, reg, ff_init_vals);
         }
     }
