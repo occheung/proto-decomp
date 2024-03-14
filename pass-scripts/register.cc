@@ -12,7 +12,12 @@ PRIVATE_NAMESPACE_BEGIN
 struct RegisterRecover : public Pass {
     RegisterRecover() : Pass("register") { }
 
-    bool groupable(FfInitVals& ff_init_vals, const SigMap& sigmap, RTLIL::Cell* dff, RTLIL::Cell* dff_other) {
+    bool groupable(
+        FfInitVals& ff_init_vals,
+        const SigMap& sigmap,
+        RTLIL::Cell* dff,
+        RTLIL::Cell* dff_other
+    ) {
         // Only perform trivial matching
         // So if the signal input polarity is different, do not group
         FfData dff_data(&ff_init_vals, dff);
