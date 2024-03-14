@@ -226,7 +226,7 @@ struct CircuitGraph {
 
         std::set<RTLIL::Cell*> ret;
 
-        RTLIL::Cell* src_cell = std::get<0>(src);
+        auto [src_cell, src_port, src_idx] = src;
 
         // If the destination is an output, check if dest is the output of src_cell
         const auto& [dest_cell, dest_port, dest_pin] = dest;
@@ -237,30 +237,39 @@ struct CircuitGraph {
         }
 
         const dict<IdString, std::vector<std::vector<Sink>>>& cell_sink_map = this->sink_map.at(src_cell);
-        for (const auto& [port_name, port_sink_lists]: cell_sink_map) {
-            for (const std::vector<Sink>& sink_list: port_sink_lists) {
-                for (const Sink& sink: sink_list) {
-                    // Reject any sink that are constants or external port
-                    if (std::holds_alternative<RTLIL::SigBit>(sink)) {
-                        continue;
-                    }
+        if (cell_sink_map.count(src_port) == 0) {
+            return {};
+        }
 
-                    CellPin next_src = std::get<CellPin>(sink);
-                    // If propagating to the destination, then the destination is found
-                    if (next_src == dest) {
-                        ret.insert(std::get<0>(next_src));
-                        continue;
-                    }
+        const std::vector<Sink>& sink_list = cell_sink_map.at(src_port)[src_idx];
+        for (const Sink& sink: sink_list) {
+            // Reject any sink that are constants or external port
+            if (std::holds_alternative<RTLIL::SigBit>(sink)) {
+                continue;
+            }
 
-                    // If the propagating target is non-combinatorial AND not
-                    // the destination, do NOT propagate
-                    RTLIL::Cell* sink_cell = std::get<0>(next_src);
-                    if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
-                        continue;
-                    }
+            CellPin next_src = std::get<CellPin>(sink);
+            // If propagating to the destination, then the destination is found
+            if (next_src == dest) {
+                ret.insert(std::get<0>(next_src));
+                continue;
+            }
 
-                    std::set<RTLIL::Cell*> reached_recur = get_intermediate_comb_cells(next_src, dest);
-                    ret.insert(reached_recur.begin(), reached_recur.end());
+            // If the propagating target is non-combinatorial AND not
+            // the destination, do NOT propagate
+            RTLIL::Cell* sink_cell = std::get<0>(next_src);
+            if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
+                continue;
+            }
+
+            // Propagate to all possible outputs of the sink cell
+            for (const auto& [sink_port, sink_sig_spec]: sink_cell->connections()) {
+                if (sink_cell->output(sink_port)) {
+                    for (int i = 0; i < GetSize(sink_sig_spec); ++i) {
+                        std::set<RTLIL::Cell*> reached_recur = get_intermediate_comb_cells(
+                            {sink_cell, sink_port, i}, dest);
+                        ret.insert(reached_recur.begin(), reached_recur.end());
+                    }
                 }
             }
         }
