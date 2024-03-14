@@ -277,6 +277,219 @@ struct CircuitGraph {
         return ret;
     }
 
+    // Note: We only consider combinatorial elements
+    std::set<CellPin> get_non_dominated_pins(const std::set<CellPin> srcs) const {
+        // Directly controlled pins
+        std::set<CellPin> controlled_srcs = srcs;
+        std::set<CellPin> dominated_pins;
+        // Initialize the work list with dependencies of srcs
+        std::vector<RTLIL::Cell*> work_list;
+        for (const auto& [src_cell, src_pin, src_idx]: srcs) {
+            for (const Sink& sink: this->sink_map.at(src_cell).at(src_pin).at(src_idx)) {
+                if (std::holds_alternative<CellPin>(sink)) {
+                    work_list.push_back(std::get<0>(std::get<CellPin>(sink)));
+                }
+            }
+        }
+
+
+        while (!work_list.empty()) {
+            RTLIL::Cell* curr = work_list.back();
+            work_list.pop_back();
+
+            // Do not process non-combinatorial elements
+            if (RTLIL::builtin_ff_cell_types().count(curr->type)) {
+                continue;
+            }
+
+            // If the pin is totally directly controlled by controlled sources,
+            // Add the pin to the controlled pins and dominated pins.
+            // Push all its dependencies to the work list
+            bool dominated = true;
+            for (const auto& [_pin_id, pin_srcs]: this->source_map.at(curr)) {
+                for (const Source& pin_src: pin_srcs) {
+                    // We started with connected pins
+                    if (!std::holds_alternative<CellPin>(pin_src)) {
+                        // Sigbit can hold constants as well
+                        // Constant should not be considered in dominance
+                        if (std::get<RTLIL::SigBit>(pin_src).is_wire()) {
+                            dominated = false;
+                            break;
+                        }
+                    } else {
+                        if (controlled_srcs.count(std::get<CellPin>(pin_src)) == 0) {
+                            dominated = false;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (dominated) {
+                for (const auto& [pin_id, output_pins]: this->sink_map.at(curr)) {
+                    for (size_t i = 0; i < output_pins.size(); ++i) {
+                        controlled_srcs.insert({curr, pin_id, i});
+                        dominated_pins.insert({curr, pin_id, i});
+
+                        for (const Sink& sink: output_pins[i]) {
+                            if (std::holds_alternative<CellPin>(sink)) {
+                                work_list.push_back(std::get<0>(std::get<CellPin>(sink)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        std::set<CellPin> non_dominated_pins;
+        for (const CellPin& src: srcs) {
+            if (dominated_pins.count(src) == 0) {
+                non_dominated_pins.insert(src);
+            }
+        }
+
+        return non_dominated_pins;
+    }
+
+    std::set<CellPin> get_dominated_frontier(
+        // The returned leaves must be at least partially dependent on the
+        // mandatory sources
+        const std::set<CellPin> mandatory_srcs,
+        // The returned leaves may depend on the tolerated sources
+        const std::set<CellPin> tolerated_srcs
+        // The returned leaves must be totally dependent to input sources only
+    ) const {
+        // Directly controlled pins
+        std::set<CellPin> weak_ctrl_srcs = tolerated_srcs;
+        std::set<CellPin> mandated_ctrl_srcs = mandatory_srcs;
+        std::set<CellPin> mandatorily_dominated_pins;
+        std::set<RTLIL::Cell*> mandatorily_dominated_cells;
+        // Initialize the work list with dependencies of both mandatory and tolerated
+        // sources. It is possible that the intermediates in the SSC may drive some
+        // of the output pins
+        //
+        // Keep the previous pin to compute mandatorily connected cell easier
+        std::vector<std::pair<CellPin, RTLIL::Cell*>> work_list;
+
+        for (const auto& [src_cell, src_pin, src_idx]: mandatory_srcs) {
+            for (const Sink& sink: this->sink_map.at(src_cell).at(src_pin).at(src_idx)) {
+                if (std::holds_alternative<CellPin>(sink)) {
+                    work_list.push_back({
+                        {src_cell, src_pin, src_idx},
+                        std::get<0>(std::get<CellPin>(sink))
+                    });
+                }
+            }
+        }
+
+        for (const auto& [src_cell, src_pin, src_idx]: tolerated_srcs) {
+            for (const Sink& sink: this->sink_map.at(src_cell).at(src_pin).at(src_idx)) {
+                if (std::holds_alternative<CellPin>(sink)) {
+                    work_list.push_back({
+                        {src_cell, src_pin, src_idx},
+                        std::get<0>(std::get<CellPin>(sink))
+                    });
+                }
+            }
+        }
+
+        while (!work_list.empty()) {
+            auto [prev, curr] = work_list.back();
+            work_list.pop_back();
+
+            // Do not process non-combinatorial elements
+            if (RTLIL::builtin_ff_cell_types().count(curr->type)) {
+                continue;
+            }
+
+            // If the pin is totally directly controlled by controlled sources,
+            // Add the pin to the appropriate ctrl and dominance lists.
+            // Push all its dependencies to the work list
+            bool dominated = true;
+            bool mandatory_dominance = false;
+            for (const auto& [_pin_id, pin_srcs]: this->source_map.at(curr)) {
+                for (const Source& pin_src: pin_srcs) {
+                    // We started with connected pins
+                    if (!std::holds_alternative<CellPin>(pin_src)) {
+                        // Sigbit can hold constants as well
+                        // Constant should not be considered in dominance
+                        if (std::get<RTLIL::SigBit>(pin_src).is_wire()) {
+                            dominated = false;
+                            break;
+                        }
+                    } else {
+                        CellPin cell_pin_src = std::get<CellPin>(pin_src);
+                        if (weak_ctrl_srcs.count(cell_pin_src) == 0
+                                && mandated_ctrl_srcs.count(cell_pin_src) == 0) {
+                            dominated = false;
+                            break;
+                        }
+
+                        // If any input pin of the cell is solely driven by mandated
+                        // pins, this cell qualifies for an output pin
+                        //
+                        // Note: It is not necessarily a leaf
+                        if (mandated_ctrl_srcs.count(cell_pin_src)) {
+                            mandatory_dominance = true;
+                        }
+                    }
+                }
+            }
+
+            if (dominated) {
+                for (const auto& [pin_id, output_pins]: this->sink_map.at(curr)) {
+                    for (size_t i = 0; i < output_pins.size(); ++i) {
+                        if (mandatory_dominance) {
+                            mandated_ctrl_srcs.insert({curr, pin_id, i});
+                            mandatorily_dominated_pins.insert({curr, pin_id, i});
+                            mandatorily_dominated_cells.insert(curr);
+
+                            // // Remove the previous pin from the list
+                            // // It is no longer a leaf
+                            // mandatorily_dominated_pins.erase(prev);
+                        } else {
+                            weak_ctrl_srcs.insert({curr, pin_id, i});
+                        }
+
+                        for (const Sink& sink: output_pins[i]) {
+                            if (std::holds_alternative<CellPin>(sink)) {
+                                work_list.push_back({
+                                    {curr, pin_id, i},
+                                    std::get<0>(std::get<CellPin>(sink))
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+
+        // log("Dominated pins:\n");
+        // for (auto [curr_cell, curr_port_id, curr_port_idx]: mandatorily_dominated_pins) {
+        //     log("Cell %s Port %s Index %d\n", log_id(curr_cell), log_id(curr_port_id), curr_port_idx);
+        // }
+
+        // Only include pins that drives a non-dominated cell
+        std::set<CellPin> frontier;
+        for (auto [curr_cell, curr_port_id, curr_port_idx]: mandatorily_dominated_pins) {
+            for (const Sink& sink: this->sink_map.at(curr_cell).at(curr_port_id).at(curr_port_idx)) {
+                if (std::holds_alternative<RTLIL::SigBit>(sink)) {
+                    continue;
+                }
+
+                RTLIL::Cell* sink_cell = std::get<0>(std::get<CellPin>(sink));
+                if (mandatorily_dominated_cells.count(sink_cell) == 0) {
+                    frontier.insert({
+                        curr_cell, curr_port_id, curr_port_idx
+                    });
+                }
+            }
+        }
+
+        return frontier;
+    }
+
     // FIXME: This is not correct
     // We should use fixed point computation of dominance instead.
     std::set<CellPin> get_dominated_pins(
