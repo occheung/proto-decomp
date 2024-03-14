@@ -297,48 +297,6 @@ struct ValidReadyPass : public Pass {
             std::set<RTLIL::Cell*> dffe_sources = circuit_graph.dff_source_graph[dffe];
             std::set<RTLIL::Cell*> dffe_sinks = circuit_graph.dff_sink_graph[dffe];
 
-            // for (RTLIL::Cell* dffe_src: dffe_sources) {
-            //     log("%s -> %s\n", dffe_src->name.c_str(), dffe->name.c_str());
-            // }
-
-            // for (RTLIL::Cell* dffe_sink: dffe_sinks) {
-            //     log("%s <- %s\n", dffe_sink->name.c_str(), dffe->name.c_str());
-            // }
-
-            {
-                std::vector<RTLIL::Cell*> work_list;
-                work_list.push_back(dffe);
-
-                while (!work_list.empty()) {
-                    RTLIL::Cell* cell = work_list.back();
-                    work_list.pop_back();
-
-                    // The cell can reach all its output
-                    for (const auto& [port, sink_lists]: circuit_graph.sink_map[cell]) {
-                        // Reject inputs & clocks
-                        if (!cell->output(port)) {
-                            continue;
-                        }
-
-                        for (const std::vector<Sink>& sink_list: sink_lists) {
-                            for (const Sink& sink: sink_list) {
-                                // Reject non-cell connections
-                                if (std::holds_alternative<RTLIL::SigBit>(sink)) {
-                                    continue;
-                                }
-
-                                const auto& [sink_cell, sink_port, _sink_pin_idx] = std::get<CellPin>(sink);
-
-                                // Only propagate the sink if it is not a flip flop
-                                if (RTLIL::builtin_ff_cell_types().count(sink_cell->type) == 0) {
-                                    work_list.push_back(sink_cell);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             std::set<RTLIL::Cell*> viable_intermediate_dffes;
             for (RTLIL::Cell* dffe_src: dffe_sources) {
                 // Not interested in self-loop 1-hop
