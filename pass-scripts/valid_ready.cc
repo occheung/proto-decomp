@@ -112,6 +112,10 @@ struct ValidReadyPass : public Pass {
             }
         }
 
+        for (RTLIL::Cell* independent_dffe: independent_dffes) {
+            self_loop_dffe.erase(independent_dffe);
+        }
+
         for (RTLIL::Cell* ff_cell: self_loop_dffe) {
             log("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
