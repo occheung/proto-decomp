@@ -756,6 +756,96 @@ struct ValidReadyPass : public Pass {
             }
         }
 
+        // Check if the ready bits and valid bits are functionally separable
+        for (const auto& eligible_pair: eligible_ctrl_bit_pairs) {
+            auto eligible_it = eligible_pair.begin();
+            auto [dffe_src, eligible_src] = *eligible_it;
+
+            std::advance(eligible_it, 1);
+            auto [dffe_sink, eligible_sink] = *eligible_it;
+
+            std::set<RTLIL::Cell*> src_path;
+            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
+                std::set<RTLIL::Cell*> src_i_path = circuit_graph.get_intermediate_comb_cells(
+                    {dffe_src, "\\Q", i}, eligible_src);
+                src_path.insert(src_i_path.begin(), src_i_path.end());
+            }
+
+            std::set<RTLIL::Cell*> sink_path;
+            for (int i = 0; i < GetSize(dffe_sink->getPort("\\Q")); ++i) {
+                std::set<RTLIL::Cell*> sink_i_path = circuit_graph.get_intermediate_comb_cells(
+                    {dffe_sink, "\\Q", i}, eligible_sink);
+                sink_path.insert(sink_i_path.begin(), sink_i_path.end());
+            }
+
+            log("Examine Cell %s Port %s <-> Cell %s Port %s\n\n",
+                std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+            
+            log("Src Path:\n");
+            for (RTLIL::Cell* src_cell: src_path) {
+                log("%s\n", log_id(src_cell));
+            }
+
+            log("Sink Path:\n");
+            for (RTLIL::Cell* sink_cell: sink_path) {
+                log("%s\n", log_id(sink_cell));
+            }
+
+            log("\n\n");
+
+            bool has_common_gate = false;
+            for (RTLIL::Cell* src_gate: src_path) {
+                if (sink_path.count(src_gate)) {
+                    has_common_gate = true;
+                    break;
+                }
+            }
+
+            if (has_common_gate) {
+                log("Found intertwined path between Cell %s Port %s and Cell %s Port %s\n",
+                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+            }
+
+            // Ensure there are not mutual interference
+            std::set<RTLIL::Cell*> dffe_src_sink_path;
+            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
+                std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
+                    {dffe_src, "\\Q", i}, eligible_sink);
+                dffe_src_sink_path.insert(path_i.begin(), path_i.end());
+            }
+
+            std::set<RTLIL::Cell*> dffe_sink_src_path;
+            for (int i = 0; i < GetSize(dffe_sink->getPort("\\Q")); ++i) {
+                std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
+                    {dffe_sink, "\\Q", i}, eligible_src);
+                dffe_sink_src_path.insert(path_i.begin(), path_i.end());
+            }
+
+            if (!dffe_src_sink_path.empty() || !dffe_sink_src_path.empty()) {
+                log("Cell %s:%s and Cell %s:%s are combinatorially influenced by opposite DFFE\n",
+                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+            }
+
+            // TODO: Actually remove infracting control bits
+        }
+
+        log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
+
+        for (const auto& eligible_pair: eligible_ctrl_bit_pairs) {
+            auto eligible_it = eligible_pair.begin();
+            auto [dffe_src, eligible_src] = *eligible_it;
+
+            std::advance(eligible_it, 1);
+            auto [dffe_sink, eligible_sink] = *eligible_it;
+
+            log("Ctrl src: Cell %s Port %s from %s; sink: Cell %s Port %s from %s\n",
+                std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(), log_id(dffe_src),
+                std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str(), log_id(dffe_sink));
+        }
+
     }
 } ValidReadyPass;
 
