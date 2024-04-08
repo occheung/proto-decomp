@@ -7,4 +7,4 @@ __pycache__
 /*.v
 /*.cc
 /*.sv
-/hdl/lib/*
+/slpp_all
