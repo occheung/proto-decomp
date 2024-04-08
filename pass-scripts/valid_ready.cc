@@ -627,6 +627,135 @@ struct ValidReadyPass : public Pass {
         }
         log("\n\n");
 
+        std::set<RTLIL::Cell*> data_path_cell;
+        data_path_cell.insert(data_regs.begin(), data_regs.end());
+
+        // Include muxes that reaches data registers' data pins
+        // TODO: Also include muxes that reaches output due to incomplete information
+        std::set<RTLIL::Cell*> sinked_muxes;
+        {
+            for (RTLIL::Cell* mux_cell: muxes) {
+                bool has_dependent_data_sink = false;
+                for (RTLIL::Cell* data_reg: data_regs) {
+                    if (has_dependent_data_sink) {
+                        break;
+                    }
+
+                    for (int i = 0; i < GetSize(data_reg->getPort("\\D")); ++i) {
+                        if (!circuit_graph.get_intermediate_comb_cells(
+                            {mux_cell, "\\Y", 0},
+                            {data_reg, "\\D", i}
+                        ).empty()) {
+                            has_dependent_data_sink = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (has_dependent_data_sink) {
+                    log("Mux %s has dependent data sink\n", log_id(mux_cell));
+                    sinked_muxes.insert(mux_cell);
+                }
+            }
+        }
+        data_path_cell.insert(sinked_muxes.begin(), sinked_muxes.end());
+
+        // Record if DFFE loop has an associated data register
+        std::set<std::set<std::pair<RTLIL::Cell*, CellPin>>> eligible_ctrl_bit_pairs;
+        for (const auto& [dffe_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+            const auto& [dffe_src, dffe_sink] = dffe_edge;
+            // Find the opposite edge
+            std::set<CellPin> opposite_ctrl_bits;
+            std::pair<RTLIL::Cell*, RTLIL::Cell*> opposite_edge = {dffe_sink, dffe_src};
+            if (dff_loop_to_ctrl_pin_map.count(opposite_edge)) {
+                opposite_ctrl_bits = dff_loop_to_ctrl_pin_map.at(opposite_edge);
+            } else {
+                // The current DFFE cannot complete a loop with eligible ctrl bits
+                continue;
+            }
+
+            for (const CellPin& ctrl_bit: ctrl_bits) {
+                LOG("Exanime %s <-> %s\n", log_id(dffe_src), log_id(dffe_sink));
+
+                for (RTLIL::Cell* data_reg: data_path_cell) {
+                    CellPin data_path_ctrl_pin;
+                    if (RTLIL::builtin_ff_cell_types().count(data_reg->type)) {
+                        data_path_ctrl_pin = {data_reg, "\\EN", 0};
+                    } else {
+                        data_path_ctrl_pin = {data_reg, "\\S", 0};
+                    }
+
+                    // Control bits may be sourced to a datapath control pin combinatorially
+                    if (!circuit_graph.get_intermediate_comb_cells(
+                        ctrl_bit, data_path_ctrl_pin
+                    ).empty()) {
+                        for (const CellPin& other_ctrl_bit: opposite_ctrl_bits) {
+                            if (!circuit_graph.get_intermediate_comb_cells(
+                                other_ctrl_bit, data_path_ctrl_pin
+                            ).empty()) {
+                                log("Cell %s Port %s reaches Cell %s CE\n",
+                                    std::get<0>(ctrl_bit)->name.c_str(),
+                                    std::get<1>(ctrl_bit).c_str(),
+                                    log_id(data_reg));
+                                log("Other ctrl pin: Cell %s; Port %s\n",
+                                    std::get<0>(other_ctrl_bit)->name.c_str(),
+                                    std::get<1>(other_ctrl_bit).c_str()
+                                );
+                                std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
+                                    {dffe_src, ctrl_bit},
+                                    {dffe_sink, other_ctrl_bit}};
+                                eligible_ctrl_bit_pairs.insert(eligible_pair);
+                            }
+                        }
+                    }
+                }
+
+                // Control bits may also be sourced to any FSM control pin,
+                // then to datapath control pin
+                //
+                // This will introduce 1 clock cycle delay
+                for (RTLIL::Cell* inter_dffe: self_loop_dffe) {
+                    if (!circuit_graph.get_intermediate_comb_cells(
+                        ctrl_bit, {inter_dffe, "\\EN", 0}
+                    ).empty()) {
+                        for (CellPin other_ctrl_bit: opposite_ctrl_bits) {
+                            if (!circuit_graph.get_intermediate_comb_cells(
+                                other_ctrl_bit, {inter_dffe, "\\EN", 0}
+                            ).empty()) {
+                                // Get all data output pins, try to reach some MUX selects
+                                FfData ff_data(&ff_init_vals, inter_dffe);
+                                for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
+                                    CellPin src = {inter_dffe, "\\Q", i};
+
+                                    for (RTLIL::Cell* mux: sinked_muxes) {
+                                        if (!circuit_graph.get_intermediate_comb_cells(
+                                            src, {mux, "\\S", 0}
+                                        ).empty()) {
+                                            log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                                std::get<0>(ctrl_bit)->name.c_str(),
+                                                std::get<1>(ctrl_bit).c_str(),
+                                                log_id(inter_dffe));
+                                            log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                                std::get<0>(other_ctrl_bit)->name.c_str(),
+                                                std::get<1>(other_ctrl_bit).c_str(),
+                                                log_id(inter_dffe));
+                                            log("DFFE reaches MUX %s\n", log_id(mux));
+
+                                            std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
+                                                {dffe_src, ctrl_bit},
+                                                {dffe_sink, other_ctrl_bit}};
+                                            eligible_ctrl_bit_pairs.insert(eligible_pair);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
     }
 } ValidReadyPass;
 
