@@ -492,6 +492,11 @@ struct CircuitGraph {
             }
         }
 
+        // If somehow there isn't a frontier, it means that the mandatory sources are the frontier
+        if (frontier.empty()) {
+            return mandatory_srcs;
+        }
+
         return frontier;
     }
 
