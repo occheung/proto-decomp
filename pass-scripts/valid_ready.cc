@@ -146,6 +146,9 @@ struct ValidReadyPass : public Pass {
         // Store potential valid/ready bits of the entire circuit
         std::set<CellPin> ctrl_candidates;
 
+        // Properly group up the control bits by DFFE directional edges
+        dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::set<CellPin>> dff_loop_to_ctrl_pin_map;
+
         // Find the strongly connected component that involves the D,E pins
         for (RTLIL::Cell* dffe: self_loop_dffe) {
             log("Suspected state register: %s\n", dffe->name.c_str());
@@ -480,6 +483,12 @@ struct ValidReadyPass : public Pass {
                                 rdy_srcs[potential_rdy_bit] = {};
                             }
                             rdy_srcs[potential_rdy_bit].insert(inter_dffe);
+
+                            std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge = {inter_dffe, dffe};
+                            if (dff_loop_to_ctrl_pin_map.count(directed_edge) == 0) {
+                                dff_loop_to_ctrl_pin_map[directed_edge] = {};
+                            }
+                            dff_loop_to_ctrl_pin_map[directed_edge].insert(potential_rdy_bit);
                         }
                     }
                 }
