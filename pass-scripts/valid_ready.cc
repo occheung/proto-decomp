@@ -116,6 +116,24 @@ struct ValidReadyPass : public Pass {
             self_loop_dffe.erase(independent_dffe);
         }
 
+        // Find data registers
+        // TODO: Define data registers as registers with CE but not classified as FSMs
+        std::set<RTLIL::Cell*> data_regs;
+        for (RTLIL::Cell* ff: ff_with_enable) {
+            if (self_loop_dffe.count(ff) == 0) {
+                data_regs.insert(ff);
+                log("Data register: %s\n", log_id(ff));
+            }
+        }
+
+        // Get MUXes. These are potentially routing data.
+        std::set<RTLIL::Cell*> muxes;
+        for (RTLIL::Cell* cell: top->cells()) {
+            if (cell->type == "$_MUX_") {
+                muxes.insert(cell);
+            }
+        }
+
         for (RTLIL::Cell* ff_cell: self_loop_dffe) {
             log("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
         }
