@@ -549,6 +549,84 @@ struct ValidReadyPass : public Pass {
             LOG("Remove directed edge %s -> %s\n", log_id(dffe_src), log_id(dffe_sink));
         }
 
+        // Try to promote inferred AND pins to replace control bits
+        // This is to improve positional precision
+        log("Provisional ctrl pin mappings:\n");
+        for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+            auto [dffe_src, dffe_sink] = directed_edge;
+            for (CellPin ctrl_bit: ctrl_bits) {
+                log("%s -> %s:%s -> %s\n",
+                    log_id(dffe_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dffe_sink));
+            }
+        }
+        log("\n\n");
+
+        {
+            auto dff_loop_to_ctrl_pin_map_clone = dff_loop_to_ctrl_pin_map;
+            for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+                // If there is a combinatorial path from such bit to the original guess
+                // Replace the original bit with the new
+                //
+                // Note that the new ctrl candidate should still be dependent on the
+                // DFFE source
+                auto [dffe_src, dffe_sink] = directed_edge;
+
+                log("Examine edge: %s -> %s\n", log_id(dffe_src), log_id(dffe_sink));
+                std::set<CellPin> new_ctrl_bits = ctrl_bits;
+                for (CellPin old_ctrl_bit: ctrl_bits) {
+                    for (const auto& new_ctrl_bit: additional_ctrls) {
+                        if (new_ctrl_bit == old_ctrl_bit) {
+                            continue;
+                        }
+
+                        if (!circuit_graph.get_intermediate_comb_cells(
+                            new_ctrl_bit, old_ctrl_bit
+                        ).empty()) {
+                            bool src_dependent = false;
+                            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
+                                if (!circuit_graph.get_intermediate_comb_cells(
+                                    {dffe_src, "\\Q", i},
+                                    new_ctrl_bit
+                                ).empty()) {
+                                    src_dependent = true;
+                                    break;
+                                }
+                            }
+
+                            if (src_dependent) {
+                                log("Erase old ctrl: %s:%s\n", std::get<0>(old_ctrl_bit)->name.c_str(), std::get<1>(old_ctrl_bit).c_str());
+                                log("Replace with %s:%s\n", std::get<0>(new_ctrl_bit)->name.c_str(), std::get<1>(new_ctrl_bit).c_str());
+                                new_ctrl_bits.erase(old_ctrl_bit);
+                                log("Old ctrl bit count: %ld\n", new_ctrl_bits.count(old_ctrl_bit));
+                                new_ctrl_bits.insert(new_ctrl_bit);
+                            }
+                        }
+                    }
+                }
+
+                dff_loop_to_ctrl_pin_map_clone[directed_edge] = new_ctrl_bits;
+            }
+
+            dff_loop_to_ctrl_pin_map = dff_loop_to_ctrl_pin_map_clone;
+
+            log("Promoted control bits\n");
+        }
+
+        // Try to promote inferred AND pins to replace control bits
+        // This is to improve positional precision
+        log("ctrl pin mappings after promotion:\n");
+        for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+            auto [dffe_src, dffe_sink] = directed_edge;
+            int ctrl_bit_count = 0;
+            for (CellPin ctrl_bit: ctrl_bits) {
+                log("Ctrl bit %d\n", ctrl_bit_count);
+                log("%s -> %s:%s -> %s\n",
+                    log_id(dffe_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dffe_sink));
+                ctrl_bit_count++;
+            }
+        }
+        log("\n\n");
+
     }
 } ValidReadyPass;
 
