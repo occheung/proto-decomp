@@ -23,5 +23,6 @@ in
             pkgs.gtkwave
             pkgs.xdot
             pkgs.readline
+            pkgs.yosys-synlig
         ];
     }
