@@ -536,6 +536,19 @@ struct ValidReadyPass : public Pass {
             log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
         }
 
+        // Eliminate directed edges that has multiple control bits
+        std::set<std::pair<RTLIL::Cell*, RTLIL::Cell*>> directed_edges_to_erase;
+        for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+            if (ctrl_bits.size() > 1) {
+                directed_edges_to_erase.insert(directed_edge);
+            }
+        }
+        for (std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge: directed_edges_to_erase) {
+            auto [dffe_src, dffe_sink] = directed_edge;
+            dff_loop_to_ctrl_pin_map.erase(directed_edge);
+            LOG("Remove directed edge %s -> %s\n", log_id(dffe_src), log_id(dffe_sink));
+        }
+
     }
 } ValidReadyPass;
 
