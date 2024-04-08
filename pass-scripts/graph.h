@@ -452,10 +452,6 @@ struct CircuitGraph {
                             mandated_ctrl_srcs.insert({curr, pin_id, i});
                             mandatorily_dominated_pins.insert({curr, pin_id, i});
                             mandatorily_dominated_cells.insert(curr);
-
-                            // // Remove the previous pin from the list
-                            // // It is no longer a leaf
-                            // mandatorily_dominated_pins.erase(prev);
                         } else {
                             weak_ctrl_srcs.insert({curr, pin_id, i});
                         }
