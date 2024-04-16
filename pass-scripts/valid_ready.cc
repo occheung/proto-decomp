@@ -282,33 +282,33 @@ struct ValidReadyPass : public Pass {
                 src_pin_it->second = dominated_pins;
             }
 
-            // Compute dominance for the SCC to aproximate the input of the FSM
-            if (experimental) {
-                std::set<CellPin> non_scc_drivers;
-                for (const auto& [driver, _non_driver]: non_scc_sources) {
-                    non_scc_drivers.insert(driver);
-                }
-                std::set<CellPin> fsm_inputs = circuit_graph.get_non_dominated_pins(non_scc_drivers);
-                log("Inputs:\n");
-                for (const auto& [in_cell, in_pin_name, in_pin_idx]: fsm_inputs) {
-                    log("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
-                }
+            // // Compute dominance for the SCC to aproximate the input of the FSM
+            // if (experimental) {
+            //     std::set<CellPin> non_scc_drivers;
+            //     for (const auto& [driver, _non_driver]: non_scc_sources) {
+            //         non_scc_drivers.insert(driver);
+            //     }
+            //     std::set<CellPin> fsm_inputs = circuit_graph.get_non_dominated_pins(non_scc_drivers);
+            //     log("Inputs:\n");
+            //     for (const auto& [in_cell, in_pin_name, in_pin_idx]: fsm_inputs) {
+            //         log("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
+            //     }
 
-                std::set<CellPin> fsm_state_bits;
-                for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
-                    fsm_state_bits.insert({dffe, "\\Q", i});
-                }
+            //     std::set<CellPin> fsm_state_bits;
+            //     for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
+            //         fsm_state_bits.insert({dffe, "\\Q", i});
+            //     }
 
-                std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
-                    fsm_state_bits,
-                    fsm_inputs
-                );
+            //     std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
+            //         fsm_state_bits,
+            //         fsm_inputs
+            //     );
 
-                log("Outputs:\n");
-                for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-                    log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-                }
-            }
+            //     log("Outputs:\n");
+            //     for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
+            //         log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+            //     }
+            // }
 
             // For each potential source pin of the FSM, find if it is dominated
             std::set<CellPin> non_dominated_sources;
@@ -387,84 +387,85 @@ struct ValidReadyPass : public Pass {
                 log("%s\n", inter_dffe->name.c_str());
             }
 
-            if (experimental) {
-                // Find the intersection of the loop path and the DFF inputs
-                for (const CellPin& connected_input_bit: non_dominated_sources) {
-                    for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
-                        bool found_path = false;
-                        for (int i = 0; i < GetSize(inter_dffe->getPort("\\Q")); ++i) {
-                            if (!circuit_graph.get_intermediate_comb_cells(
-                                {inter_dffe, "\\Q", i},
-                                connected_input_bit
-                            ).empty()) {
-                                found_path = true;
-                            } 
-                        }
+            // if (experimental) {
+            //     // Find the intersection of the loop path and the DFF inputs
+            //     for (const CellPin& connected_input_bit: non_dominated_sources) {
+            //         for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
+            //             bool found_path = false;
+            //             for (int i = 0; i < GetSize(inter_dffe->getPort("\\Q")); ++i) {
+            //                 if (!circuit_graph.get_intermediate_comb_cells(
+            //                     {inter_dffe, "\\Q", i},
+            //                     connected_input_bit
+            //                 ).empty()) {
+            //                     found_path = true;
+            //                 } 
+            //             }
                         
-                        if (found_path) {
-                            // Mark the bit, exclude this input in output ctrl bit finding
-                            std::set<CellPin> adjusted_fsm_inputs = non_dominated_sources;
-                            adjusted_fsm_inputs.erase(connected_input_bit);
+            //             if (found_path) {
+            //                 // Mark the bit, exclude this input in output ctrl bit finding
+            //                 std::set<CellPin> adjusted_fsm_inputs = non_dominated_sources;
+            //                 adjusted_fsm_inputs.erase(connected_input_bit);
 
-                            std::set<CellPin> fsm_state_bits;
-                            for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
-                                fsm_state_bits.insert({dffe, "\\Q", i});
-                            }
+            //                 std::set<CellPin> fsm_state_bits;
+            //                 for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
+            //                     fsm_state_bits.insert({dffe, "\\Q", i});
+            //                 }
 
-                            std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
-                                fsm_state_bits,
-                                adjusted_fsm_inputs
-                            );
+            //                 std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
+            //                     fsm_state_bits,
+            //                     // adjusted_fsm_inputs,
+            //                     {}
+            //                 );
 
-                            log("Guess cell %s port %s index %d as input connection\n",
-                                log_id(std::get<0>(connected_input_bit)),
-                                log_id(std::get<1>(connected_input_bit)),
-                                std::get<2>(connected_input_bit));
-                            // for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-                            //     log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-                            // }
-                            // log("Guess ends\n\n");
+            //                 log("Guess cell %s port %s index %d as input connection\n",
+            //                     log_id(std::get<0>(connected_input_bit)),
+            //                     log_id(std::get<1>(connected_input_bit)),
+            //                     std::get<2>(connected_input_bit));
+            //                 // for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
+            //                 //     log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+            //                 // }
+            //                 // log("Guess ends\n\n");
 
-                            // See if any eligible output pins complete the path
-                            for (CellPin fsm_output: fsm_outputs) {
-                                const auto& [out_cell, out_pin_name, out_pin_idx] = fsm_output;
-                                log("Cell %s Pin %s:%d ", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-                                std::set<RTLIL::Cell*> half_path_set = circuit_graph.get_intermediate_comb_cells(
-                                    fsm_output, {inter_dffe, "\\EN", 0});
-                                if (!half_path_set.empty()) {
-                                    // Check if the output pin drives some other output pins
-                                    // that also belongs to the path
-                                    bool primary_output = true;
-                                    for (Sink output_sink: circuit_graph.sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
-                                            continue;
-                                        }
+            //                 // See if any eligible output pins complete the path
+            //                 for (CellPin fsm_output: fsm_outputs) {
+            //                     const auto& [out_cell, out_pin_name, out_pin_idx] = fsm_output;
+            //                     log("Cell %s Pin %s:%d ", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+            //                     std::set<RTLIL::Cell*> half_path_set = circuit_graph.get_intermediate_comb_cells(
+            //                         fsm_output, {inter_dffe, "\\EN", 0});
+            //                     if (!half_path_set.empty()) {
+            //                         // Check if the output pin drives some other output pins
+            //                         // that also belongs to the path
+            //                         bool primary_output = true;
+            //                         for (Sink output_sink: circuit_graph.sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
+            //                             if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
+            //                                 continue;
+            //                             }
 
-                                        RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
-                                        bool cell_controls_output = false;
-                                        for (CellPin other_out_pin: fsm_outputs) {
-                                            if (std::get<0>(other_out_pin) == succ_cell) {
-                                                cell_controls_output = true;
-                                                break;
-                                            }
-                                        }
-                                        if (cell_controls_output && half_path_set.count(succ_cell)) {
-                                            primary_output = false;
-                                            break;
-                                        }
-                                    }
-                                    if (primary_output) {
-                                        log("PRIMARILY ");
-                                    }
-                                    log("forms a complete path\n");
-                                } else {
-                                    log("does NOT form a complete path\n");
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            //                             RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
+            //                             bool cell_controls_output = false;
+            //                             for (CellPin other_out_pin: fsm_outputs) {
+            //                                 if (std::get<0>(other_out_pin) == succ_cell) {
+            //                                     cell_controls_output = true;
+            //                                     break;
+            //                                 }
+            //                             }
+            //                             if (cell_controls_output && half_path_set.count(succ_cell)) {
+            //                                 primary_output = false;
+            //                                 break;
+            //                             }
+            //                         }
+            //                         if (primary_output) {
+            //                             log("PRIMARILY ");
+            //                         }
+            //                         log("forms a complete path\n");
+            //                     } else {
+            //                         log("does NOT form a complete path\n");
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
             
             // Determine which non-SCC source is related to ready bit
             dict<CellPin, std::set<RTLIL::Cell*>> reg_ctrl_candidates;
