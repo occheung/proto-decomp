@@ -18,8 +18,8 @@ def generate_rtlil(lib_path, driver_path):
     # cmd = ["yosys", "-p", "plugin -i systemverilog; read_systemverilog "
     #     + file_names + "; write_rtlil top.rtlil"]
 
-    main_cmd_str += "read_systemverilog -link; synth -noabc -top top; opt -full -purge "
-    # main_cmd_str += "write_rtlil top.rtlil"
+    main_cmd_str += "read_systemverilog -link; synth -noabc -top top; flatten; "
+    main_cmd_str += "write_rtlil top.rtlil"
     cmd = ["yosys", "-p", main_cmd_str]
 
     print(cmd)
