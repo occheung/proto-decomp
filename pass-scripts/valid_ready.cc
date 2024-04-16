@@ -44,6 +44,38 @@ struct ValidReadyPass : public Pass {
 
         FfInitVals ff_init_vals(&sigmap, top);
 
+        // Find registers without CE. Allow ctrl bits to sink D pin instead.
+        // The register should have a self feedback loop. Polarity does not matter.
+        std::set<RTLIL::Cell*> self_loop_dff;
+        {
+            std::set<RTLIL::Cell*> ff_no_ce;
+            for (RTLIL::Cell* cell: top->cells()) {
+                if (RTLIL::builtin_ff_cell_types().count(cell->type)) {
+                    FfData ff_data(&ff_init_vals, cell);
+                    if (!ff_data.has_ce) {
+                        // Check for a path from Q pin to D pin
+                        for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
+                            for (int j = 0; i < GetSize(ff_data.sig_d); ++j) {
+                                if (!circuit_graph.get_intermediate_comb_cells(
+                                    {cell, "\\Q", i},
+                                    {cell, "\\D", j}
+                                ).empty()) {
+                                    ff_no_ce.insert(cell);
+                                    self_loop_dff.insert(cell);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            log("Self-looping FF without CE:\n");
+            for (RTLIL::Cell* cell: ff_no_ce) {
+                log("%s\n", log_id(cell));
+            }
+        }
+
         // Find all FFs that has enable pins
         std::set<RTLIL::Cell*> ff_with_enable;
         for (RTLIL::Cell* cell: top->cells()) {
@@ -57,7 +89,7 @@ struct ValidReadyPass : public Pass {
 
         // Select FFs that has a feedback path
         // Some Q pins must eventually feed to a D pin of the same cell
-        std::set<RTLIL::Cell*> self_loop_dffe;
+        // std::set<RTLIL::Cell*> self_loop_dffe;
         for (RTLIL::Cell* ff_cell: ff_with_enable) {
             bool has_path = false;
             int port_size = GetSize(ff_cell->getPort("\\D"));
@@ -66,7 +98,7 @@ struct ValidReadyPass : public Pass {
                     has_path = !(circuit_graph.get_intermediate_comb_cells(
                         {ff_cell, "\\Q", src_pin_idx}, {ff_cell, "\\D", sink_pin_idx}).empty());
                     if (has_path) {
-                        self_loop_dffe.insert(ff_cell);
+                        self_loop_dff.insert(ff_cell);
                         break;
                     }
                 }
@@ -79,8 +111,8 @@ struct ValidReadyPass : public Pass {
 
         // Consider each self looping register:
         // Could bits in the same register influence other bits?
-        std::set<RTLIL::Cell*> independent_dffes;
-        for (RTLIL::Cell* dffe: self_loop_dffe) {
+        std::set<RTLIL::Cell*> independent_dffs;
+        for (RTLIL::Cell* dffe: self_loop_dff) {
             int dffe_width = GetSize(dffe->getPort("\\Q"));
 
             bool cross_influence = false;
@@ -108,19 +140,19 @@ struct ValidReadyPass : public Pass {
 
             if (!cross_influence && dffe_width > 1) {
                 LOG("DFFE %s is not a FSM\n", log_id(dffe));
-                independent_dffes.insert(dffe);
+                independent_dffs.insert(dffe);
             }
         }
 
-        for (RTLIL::Cell* independent_dffe: independent_dffes) {
-            self_loop_dffe.erase(independent_dffe);
+        for (RTLIL::Cell* independent_dff: independent_dffs) {
+            self_loop_dff.erase(independent_dff);
         }
 
         // Find data registers
         // TODO: Define data registers as registers with CE but not classified as FSMs
         std::set<RTLIL::Cell*> data_regs;
         for (RTLIL::Cell* ff: ff_with_enable) {
-            if (self_loop_dffe.count(ff) == 0) {
+            if (self_loop_dff.count(ff) == 0) {
                 data_regs.insert(ff);
                 log("Data register: %s\n", log_id(ff));
             }
@@ -134,8 +166,14 @@ struct ValidReadyPass : public Pass {
             }
         }
 
-        for (RTLIL::Cell* ff_cell: self_loop_dffe) {
+        for (RTLIL::Cell* ff_cell: self_loop_dff) {
             log("Filtered FF Cell: %s; FF type: %s\n", ff_cell->name.c_str(), ff_cell->type.c_str());
+        }
+
+        {
+            for (const auto& candidate_reg: self_loop_dff) {
+                log("Candidate register: %s:%s\n", log_id(candidate_reg), candidate_reg->type.c_str());
+            }
         }
 
         // Highlighted AND gate collections
@@ -149,31 +187,42 @@ struct ValidReadyPass : public Pass {
         // Properly group up the control bits by DFFE directional edges
         dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::set<CellPin>> dff_loop_to_ctrl_pin_map;
 
-        // Find the strongly connected component that involves the D,E pins
-        for (RTLIL::Cell* dffe: self_loop_dffe) {
-            log("Suspected state register: %s\n", dffe->name.c_str());
+        // Find the strongly connected component.
+        for (RTLIL::Cell* dff: self_loop_dff) {
+            log("Suspected state register: %s\n", dff->name.c_str());
             std::set<RTLIL::Cell*> scc_set;
-            int port_size = GetSize(dffe->getPort("\\Q"));
-            for (int bit_idx = 0; bit_idx < port_size; ++bit_idx) {
-                std::set<RTLIL::Cell*> bit_scc_set = circuit_graph.get_intermediate_comb_cells(
-                    {dffe, "\\Q", bit_idx}, {dffe, "\\EN", 0});
-                scc_set.insert(bit_scc_set.begin(), bit_scc_set.end());
+
+            FfData dff_data(&ff_init_vals, dff);
+            IdString ctrl_sink_port = dff_data.has_ce? "\\EN": "\\D";
+            for (int i = 0; i < GetSize(dff->getPort("\\Q")); ++i) {
+                for (int j = 0; j < GetSize(dff->getPort(ctrl_sink_port)); ++j) {
+                    std::set<RTLIL::Cell*> bit_scc_set = circuit_graph.get_intermediate_comb_cells(
+                        {dff, "\\Q", i}, {dff, ctrl_sink_port, j});
+                    scc_set.insert(bit_scc_set.begin(), bit_scc_set.end());
+                }
             }
 
-            // Remove dffe from the collected set:
+            // Remove dff from the collected set:
             // We are not interested at it
-            scc_set.erase(dffe);
+            scc_set.erase(dff);
 
             // If the SCC is empty, and EN is connected to an AND gate, add the AND gate
+            // to a list. It could be a sink to a control bit.
             // However, should ce_over_srst be enabled, there should be an OR gate
             // that routes the SRST signal to CE through it, else SRST is disabled
             // unconditionally.
+            //
+            // Note that in the non-CE DFF case: SCC cannot be empty because a feedback 
+            // loop from Q to D was verified, and the sink pin is D port instead of CE port.
             if (scc_set.empty()) {
-                // Find the FfData
                 Source en_src;
-                FfData dffe_data(&ff_init_vals, dffe);
-                if (dffe_data.has_srst && dffe_data.ce_over_srst) {
-                    const Source& ce_src = circuit_graph.source_map[dffe]["\\EN"][0];
+
+                if (!dff_data.has_ce) {
+                    log_error("Register %s should be a data register.\n", log_id(dff));
+                }
+
+                if (dff_data.has_srst && dff_data.ce_over_srst) {
+                    const Source& ce_src = circuit_graph.source_map[dff]["\\EN"][0];
                     if (std::holds_alternative<RTLIL::SigBit>(ce_src)) {
                         // FF cannot be a state register of interest if its CE is
                         // solely tied to const or external
@@ -184,7 +233,7 @@ struct ValidReadyPass : public Pass {
                         // FIXME: De Morgan
                         continue;
                     }
-                    const Source& srst_src = circuit_graph.source_map[dffe]["\\SRST"][0];
+                    const Source& srst_src = circuit_graph.source_map[dff]["\\SRST"][0];
                     const Source& or_a = circuit_graph.source_map[ce_src_or_cell]["\\A"][0];
                     const Source& or_b = circuit_graph.source_map[ce_src_or_cell]["\\B"][0];
 
@@ -198,7 +247,7 @@ struct ValidReadyPass : public Pass {
                         continue;
                     }
                 } else {
-                    en_src = circuit_graph.source_map[dffe]["\\EN"][0];
+                    en_src = circuit_graph.source_map[dff]["\\EN"][0];
                 }
                 // const Source& en_src = circuit_graph.source_map[dffe]["\\EN"][0];
                 if (std::holds_alternative<CellPin>(en_src)) {
@@ -256,9 +305,9 @@ struct ValidReadyPass : public Pass {
 
             // Filter off the dffe Q pins
             {
-                int q_port_size = GetSize(dffe->getPort("\\Q"));
+                int q_port_size = GetSize(dff->getPort("\\Q"));
                 for (int pin_idx = 0; pin_idx < q_port_size; ++pin_idx) {
-                    non_scc_sources.erase({dffe, "\\Q", pin_idx});
+                    non_scc_sources.erase({dff, "\\Q", pin_idx});
                 }
             }
 
@@ -267,12 +316,30 @@ struct ValidReadyPass : public Pass {
             for (auto src_pin_it = non_scc_sources.begin(); src_pin_it != non_scc_sources.end(); ++src_pin_it) {
                 const auto& [src_cell, src_port, _pin_idx] = src_pin_it->first;
                 LOG("Cell: %s; Port: %s\n", src_cell->name.c_str(), src_port.c_str());
-                std::set<CellPin> dominated_pins = circuit_graph.get_dominated_pins(src_pin_it->first, {dffe, "\\EN", 0});
+                std::set<CellPin> dominated_pins;
+                if (dff_data.has_ce) {
+                    dominated_pins = circuit_graph.get_dominated_pins(src_pin_it->first, {dff, "\\EN", 0});
+                } else {
+                    for (int i = 0; i < GetSize(dff_data.sig_d); ++i) {
+                        std::set<CellPin> i_dom_pins = circuit_graph.get_dominated_pins(
+                            src_pin_it->first, {dff, "\\D", i});
+                        dominated_pins.insert(i_dom_pins.begin(), i_dom_pins.end());
+                    }
+                }
 
-                // Remove the dffe pin. We know for sure it is in the domination set.
-                dominated_pins.erase({dffe, "\\EN", 0});
+                // // Remove the dffe pin. We know for sure it is in the domination set.
+                // dominated_pins.erase({dffe, "\\EN", 0});
                 // Remove the source itself. It does not help solving the dominance problem.
                 dominated_pins.erase(src_pin_it->first);
+                // Remove the control sinks.
+                // If it is a DFFE, remove CE pins; Otherwise, remove all D pins.
+                if (dff_data.has_ce) {
+                    dominated_pins.erase({dff, "\\EN", 0});
+                } else {
+                    for (int i = 0; i < GetSize(dff_data.sig_d); ++i) {
+                        dominated_pins.erase({dff, "\\D", i});
+                    }
+                }
 
                 for (const CellPin& pin: dominated_pins) {
                     const auto& [dom_cell, dom_port, _dom_pin_idx] = pin;
@@ -354,37 +421,37 @@ struct ValidReadyPass : public Pass {
             // (enough that I'm aware of)
             //
             // Ready bit should react 1 cycle later than valid bit
-            std::set<RTLIL::Cell*> dffe_sources = circuit_graph.dff_source_graph[dffe];
-            std::set<RTLIL::Cell*> dffe_sinks = circuit_graph.dff_sink_graph[dffe];
+            std::set<RTLIL::Cell*> dff_sources = circuit_graph.dff_source_graph[dff];
+            std::set<RTLIL::Cell*> dff_sinks = circuit_graph.dff_sink_graph[dff];
 
-            std::set<RTLIL::Cell*> viable_intermediate_dffes;
-            for (RTLIL::Cell* dffe_src: dffe_sources) {
+            std::set<RTLIL::Cell*> viable_intermediate_dffs;
+            for (RTLIL::Cell* dff_src: dff_sources) {
                 // Not interested in self-loop 1-hop
-                if (dffe_src == dffe) {
+                if (dff_src == dff) {
                     continue;
                 }
 
-                // Not interested in intermediate DFF that lacks clock enable
-                // We hypothesized the valid/ready bits shoudl drive the enable pins
-                FfData ff_data(&ff_init_vals, dffe_src);
-                if (!ff_data.has_ce) {
-                    continue;
-                }
+                // // Not interested in intermediate DFF that lacks clock enable
+                // // We hypothesized the valid/ready bits shoudl drive the enable pins
+                // FfData ff_data(&ff_init_vals, dffe_src);
+                // if (!ff_data.has_ce) {
+                //     continue;
+                // }
 
                 // The looped-in DFFE should also control a valid/ready bit
                 // by symmetry
-                if (self_loop_dffe.count(dffe_src) == 0) {
+                if (self_loop_dff.count(dff_src) == 0) {
                     continue;
                 }
 
-                if (dffe_sinks.count(dffe_src)) {
-                    viable_intermediate_dffes.insert(dffe_src);
+                if (dff_sinks.count(dff_src)) {
+                    viable_intermediate_dffs.insert(dff_src);
                 }
             }
 
             log("Viable 1-hop intermediate DFFE:\n");
-            for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
-                log("%s\n", inter_dffe->name.c_str());
+            for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
+                log("%s\n", inter_dff->name.c_str());
             }
 
             // if (experimental) {
@@ -472,20 +539,20 @@ struct ValidReadyPass : public Pass {
             for (const CellPin& potential_rdy_bit: non_dominated_sources) {
                 std::set<RTLIL::Cell*> cell_intersections;
                 dict<CellPin, std::set<RTLIL::Cell*>> rdy_srcs; 
-                for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
+                for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
                     // Try all Q pins
-                    int q_port_size = GetSize(inter_dffe->getPort("\\Q"));
+                    int q_port_size = GetSize(inter_dff->getPort("\\Q"));
                     for (int q_idx = 0; q_idx < q_port_size; ++q_idx) {
                         std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
-                            {inter_dffe, "\\Q", q_idx}, potential_rdy_bit);
+                            {inter_dff, "\\Q", q_idx}, potential_rdy_bit);
                         cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
                         if (!cells_in_path.empty()) {
                             if (rdy_srcs.count(potential_rdy_bit) == 0) {
                                 rdy_srcs[potential_rdy_bit] = {};
                             }
-                            rdy_srcs[potential_rdy_bit].insert(inter_dffe);
+                            rdy_srcs[potential_rdy_bit].insert(inter_dff);
 
-                            std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge = {inter_dffe, dffe};
+                            std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge = {inter_dff, dff};
                             if (dff_loop_to_ctrl_pin_map.count(directed_edge) == 0) {
                                 dff_loop_to_ctrl_pin_map[directed_edge] = {};
                             }
@@ -494,7 +561,6 @@ struct ValidReadyPass : public Pass {
                     }
                 }
                 if (!cell_intersections.empty()) {
-                    // reg_ctrl_candidates.insert(potential_rdy_bit);
                     reg_ctrl_candidates[potential_rdy_bit] = rdy_srcs[potential_rdy_bit];
                 }
             }
@@ -545,19 +611,19 @@ struct ValidReadyPass : public Pass {
             }
         }
         for (std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge: directed_edges_to_erase) {
-            auto [dffe_src, dffe_sink] = directed_edge;
+            auto [dff_src, dff_sink] = directed_edge;
             dff_loop_to_ctrl_pin_map.erase(directed_edge);
-            LOG("Remove directed edge %s -> %s\n", log_id(dffe_src), log_id(dffe_sink));
+            LOG("Remove directed edge %s -> %s\n", log_id(dff_src), log_id(dff_sink));
         }
 
         // Try to promote inferred AND pins to replace control bits
         // This is to improve positional precision
         log("Provisional ctrl pin mappings:\n");
         for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            auto [dffe_src, dffe_sink] = directed_edge;
+            auto [dff_src, dff_sink] = directed_edge;
             for (CellPin ctrl_bit: ctrl_bits) {
                 log("%s -> %s:%s -> %s\n",
-                    log_id(dffe_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dffe_sink));
+                    log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
             }
         }
         log("\n\n");
@@ -570,9 +636,9 @@ struct ValidReadyPass : public Pass {
                 //
                 // Note that the new ctrl candidate should still be dependent on the
                 // DFFE source
-                auto [dffe_src, dffe_sink] = directed_edge;
+                auto [dff_src, dff_sink] = directed_edge;
 
-                log("Examine edge: %s -> %s\n", log_id(dffe_src), log_id(dffe_sink));
+                log("Examine edge: %s -> %s\n", log_id(dff_src), log_id(dff_sink));
                 std::set<CellPin> new_ctrl_bits = ctrl_bits;
                 for (CellPin old_ctrl_bit: ctrl_bits) {
                     for (const auto& new_ctrl_bit: additional_ctrls) {
@@ -584,9 +650,9 @@ struct ValidReadyPass : public Pass {
                             new_ctrl_bit, old_ctrl_bit
                         ).empty()) {
                             bool src_dependent = false;
-                            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
+                            for (int i = 0; i < GetSize(dff_src->getPort("\\Q")); ++i) {
                                 if (!circuit_graph.get_intermediate_comb_cells(
-                                    {dffe_src, "\\Q", i},
+                                    {dff_src, "\\Q", i},
                                     new_ctrl_bit
                                 ).empty()) {
                                     src_dependent = true;
@@ -617,13 +683,10 @@ struct ValidReadyPass : public Pass {
         // This is to improve positional precision
         log("ctrl pin mappings after promotion:\n");
         for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            auto [dffe_src, dffe_sink] = directed_edge;
-            int ctrl_bit_count = 0;
+            auto [dff_src, dff_sink] = directed_edge;
             for (CellPin ctrl_bit: ctrl_bits) {
-                log("Ctrl bit %d\n", ctrl_bit_count);
                 log("%s -> %s:%s -> %s\n",
-                    log_id(dffe_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dffe_sink));
-                ctrl_bit_count++;
+                    log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
             }
         }
         log("\n\n");
@@ -676,7 +739,7 @@ struct ValidReadyPass : public Pass {
             }
 
             for (const CellPin& ctrl_bit: ctrl_bits) {
-                LOG("Exanime %s <-> %s\n", log_id(dffe_src), log_id(dffe_sink));
+                log("Exanime %s <-> %s\n", log_id(dffe_src), log_id(dffe_sink));
 
                 for (RTLIL::Cell* data_reg: data_path_cell) {
                     CellPin data_path_ctrl_pin;
@@ -715,7 +778,7 @@ struct ValidReadyPass : public Pass {
                 // then to datapath control pin
                 //
                 // This will introduce 1 clock cycle delay
-                for (RTLIL::Cell* inter_dffe: self_loop_dffe) {
+                for (RTLIL::Cell* inter_dffe: self_loop_dff) {
                     if (!circuit_graph.get_intermediate_comb_cells(
                         ctrl_bit, {inter_dffe, "\\EN", 0}
                     ).empty()) {
@@ -723,6 +786,10 @@ struct ValidReadyPass : public Pass {
                             if (!circuit_graph.get_intermediate_comb_cells(
                                 other_ctrl_bit, {inter_dffe, "\\EN", 0}
                             ).empty()) {
+                                log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                    std::get<0>(ctrl_bit)->name.c_str(),
+                                    std::get<1>(ctrl_bit).c_str(),
+                                    log_id(inter_dffe));
                                 // Get all data output pins, try to reach some MUX selects
                                 FfData ff_data(&ff_init_vals, inter_dffe);
                                 for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
@@ -732,10 +799,10 @@ struct ValidReadyPass : public Pass {
                                         if (!circuit_graph.get_intermediate_comb_cells(
                                             src, {mux, "\\S", 0}
                                         ).empty()) {
-                                            log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
-                                                std::get<0>(ctrl_bit)->name.c_str(),
-                                                std::get<1>(ctrl_bit).c_str(),
-                                                log_id(inter_dffe));
+                                            // log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                            //     std::get<0>(ctrl_bit)->name.c_str(),
+                                            //     std::get<1>(ctrl_bit).c_str(),
+                                            //     log_id(inter_dffe));
                                             log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
                                                 std::get<0>(other_ctrl_bit)->name.c_str(),
                                                 std::get<1>(other_ctrl_bit).c_str(),
