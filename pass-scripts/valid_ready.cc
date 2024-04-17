@@ -184,6 +184,8 @@ struct ValidReadyPass : public Pass {
         // Store potential valid/ready bits of the entire circuit
         std::set<CellPin> ctrl_candidates;
 
+        // // Properly group up the control bits by DFFE directional edges
+        // dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::set<CellPin>> dff_loop_to_ctrl_pin_map;
 
         // Record the most senior primary output, mapped by
         // directed edges from a DFF to another
@@ -561,42 +563,53 @@ struct ValidReadyPass : public Pass {
                 }
             }
             
-            // Determine which non-SCC source is related to ready bit
-            dict<CellPin, std::set<RTLIL::Cell*>> reg_ctrl_candidates;
-            for (const CellPin& potential_rdy_bit: non_dominated_sources) {
-                std::set<RTLIL::Cell*> cell_intersections;
-                dict<CellPin, std::set<RTLIL::Cell*>> rdy_srcs; 
-                for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                    // Try all Q pins
-                    int q_port_size = GetSize(inter_dff->getPort("\\Q"));
-                    for (int q_idx = 0; q_idx < q_port_size; ++q_idx) {
-                        std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
-                            {inter_dff, "\\Q", q_idx}, potential_rdy_bit);
-                        cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
-                        if (!cells_in_path.empty()) {
-                            if (rdy_srcs.count(potential_rdy_bit) == 0) {
-                                rdy_srcs[potential_rdy_bit] = {};
-                            }
-                            rdy_srcs[potential_rdy_bit].insert(inter_dff);
+            // // Determine which non-SCC source is related to ready bit
+            // dict<CellPin, std::set<RTLIL::Cell*>> reg_ctrl_candidates;
+            // for (const CellPin& potential_rdy_bit: non_dominated_sources) {
+            //     std::set<RTLIL::Cell*> cell_intersections;
+            //     dict<CellPin, std::set<RTLIL::Cell*>> rdy_srcs;
+            //     for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
+            //         // Try all Q pins
+            //         int q_port_size = GetSize(inter_dff->getPort("\\Q"));
+            //         for (int q_idx = 0; q_idx < q_port_size; ++q_idx) {
+            //             std::set<RTLIL::Cell*> cells_in_path = circuit_graph.get_intermediate_comb_cells(
+            //                 {inter_dff, "\\Q", q_idx}, potential_rdy_bit);
+            //             cell_intersections.insert(cells_in_path.begin(), cells_in_path.end());
+            //             if (!cells_in_path.empty()) {
+            //                 if (rdy_srcs.count(potential_rdy_bit) == 0) {
+            //                     rdy_srcs[potential_rdy_bit] = {};
+            //                 }
+            //                 rdy_srcs[potential_rdy_bit].insert(inter_dff);
 
-                            std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge = {inter_dff, dff};
-                            if (dff_loop_to_ctrl_pin_map.count(directed_edge) == 0) {
-                                dff_loop_to_ctrl_pin_map[directed_edge] = {};
-                            }
-                            dff_loop_to_ctrl_pin_map[directed_edge].insert(potential_rdy_bit);
-                        }
-                    }
-                }
-                if (!cell_intersections.empty()) {
-                    reg_ctrl_candidates[potential_rdy_bit] = rdy_srcs[potential_rdy_bit];
-                }
-            }
+            //                 std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge = {inter_dff, dff};
+            //                 if (dff_loop_to_ctrl_pin_map.count(directed_edge) == 0) {
+            //                     dff_loop_to_ctrl_pin_map[directed_edge] = {};
+            //                 }
+            //                 dff_loop_to_ctrl_pin_map[directed_edge].insert(potential_rdy_bit);
+            //             }
+            //         }
+            //     }
+            //     if (!cell_intersections.empty()) {
+            //         reg_ctrl_candidates[potential_rdy_bit] = rdy_srcs[potential_rdy_bit];
+            //     }
+            // }
 
-            // Save to global set
-            for (const auto& [ctrl_bit, _inter_dff_set]: reg_ctrl_candidates) {
-                ctrl_candidates.insert(ctrl_bit);
-            }
+            // // Save to global set
+            // for (const auto& [ctrl_bit, _inter_dff_set]: reg_ctrl_candidates) {
+            //     ctrl_candidates.insert(ctrl_bit);
+            // }
 
+            // // Save the candidates to a yosys set
+            // log("Found %ld control bit candidate\n", reg_ctrl_candidates.size());
+            // for (const auto& [candidate_pin, inter_dff_set]: reg_ctrl_candidates) {
+            //     log("Cell %s; Port %s from DFF ", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
+            //     for (const RTLIL::Cell* dff: inter_dff_set) {
+            //         log("%s, ", dff->name.c_str());
+            //     }
+            //     log("\n");
+            // }
+            // log("\n");
+        }
 
         for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
             auto [src_dff, sink_dff] = dff_edge;
@@ -612,114 +625,114 @@ struct ValidReadyPass : public Pass {
             log("\n");
         }
 
-        // Process AND gates that feed into registers EN port,
-        // while the corresponding register does not have a SCC
-        std::set<CellPin> additional_ctrls;
-        for (const auto& [a_pin, b_pin]: and_gates_inputs) {
-            // TODO: Do I worry about potential self-inference?
-            if (ctrl_candidates.count(a_pin)) {
-                additional_ctrls.insert(b_pin);
-                LOG("Found Cell %s Port %s in candidates; inferring Cell %s Port %s\n", 
-                    std::get<0>(a_pin)->name.c_str(), std::get<1>(a_pin).c_str(),
-                    std::get<0>(b_pin)->name.c_str(), std::get<1>(b_pin).c_str());
-            } else if (ctrl_candidates.count(b_pin)) {
-                additional_ctrls.insert(a_pin);
-            }
-        }
+        // // Process AND gates that feed into registers EN port,
+        // // while the corresponding register does not have a SCC
+        // std::set<CellPin> additional_ctrls;
+        // for (const auto& [a_pin, b_pin]: and_gates_inputs) {
+        //     // TODO: Do I worry about potential self-inference?
+        //     if (ctrl_candidates.count(a_pin)) {
+        //         additional_ctrls.insert(b_pin);
+        //         LOG("Found Cell %s Port %s in candidates; inferring Cell %s Port %s\n", 
+        //             std::get<0>(a_pin)->name.c_str(), std::get<1>(a_pin).c_str(),
+        //             std::get<0>(b_pin)->name.c_str(), std::get<1>(b_pin).c_str());
+        //     } else if (ctrl_candidates.count(b_pin)) {
+        //         additional_ctrls.insert(a_pin);
+        //     }
+        // }
 
-        ctrl_candidates.insert(additional_ctrls.begin(), additional_ctrls.end());
-        log("Found %ld control bits in total\n", ctrl_candidates.size());
-        for (const CellPin& candidate_pin: ctrl_candidates) {
-            log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
-        }
+        // ctrl_candidates.insert(additional_ctrls.begin(), additional_ctrls.end());
+        // log("Found %ld control bits in total\n", ctrl_candidates.size());
+        // for (const CellPin& candidate_pin: ctrl_candidates) {
+        //     log("Cell %s; Port %s\n", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
+        // }
 
-        // Eliminate directed edges that has multiple control bits
-        std::set<std::pair<RTLIL::Cell*, RTLIL::Cell*>> directed_edges_to_erase;
-        for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            if (ctrl_bits.size() > 1) {
-                directed_edges_to_erase.insert(directed_edge);
-            }
-        }
-        for (std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge: directed_edges_to_erase) {
-            auto [dff_src, dff_sink] = directed_edge;
-            dff_loop_to_ctrl_pin_map.erase(directed_edge);
-            LOG("Remove directed edge %s -> %s\n", log_id(dff_src), log_id(dff_sink));
-        }
+        // // Eliminate directed edges that has multiple control bits
+        // std::set<std::pair<RTLIL::Cell*, RTLIL::Cell*>> directed_edges_to_erase;
+        // for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+        //     if (ctrl_bits.size() > 1) {
+        //         directed_edges_to_erase.insert(directed_edge);
+        //     }
+        // }
+        // for (std::pair<RTLIL::Cell*, RTLIL::Cell*> directed_edge: directed_edges_to_erase) {
+        //     auto [dff_src, dff_sink] = directed_edge;
+        //     dff_loop_to_ctrl_pin_map.erase(directed_edge);
+        //     LOG("Remove directed edge %s -> %s\n", log_id(dff_src), log_id(dff_sink));
+        // }
 
-        // Try to promote inferred AND pins to replace control bits
-        // This is to improve positional precision
-        log("Provisional ctrl pin mappings:\n");
-        for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            auto [dff_src, dff_sink] = directed_edge;
-            for (CellPin ctrl_bit: ctrl_bits) {
-                log("%s -> %s:%s -> %s\n",
-                    log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
-            }
-        }
-        log("\n\n");
+        // // Try to promote inferred AND pins to replace control bits
+        // // This is to improve positional precision
+        // log("Provisional ctrl pin mappings:\n");
+        // for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+        //     auto [dff_src, dff_sink] = directed_edge;
+        //     for (CellPin ctrl_bit: ctrl_bits) {
+        //         log("%s -> %s:%s -> %s\n",
+        //             log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
+        //     }
+        // }
+        // log("\n\n");
 
-        {
-            auto dff_loop_to_ctrl_pin_map_clone = dff_loop_to_ctrl_pin_map;
-            for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-                // If there is a combinatorial path from such bit to the original guess
-                // Replace the original bit with the new
-                //
-                // Note that the new ctrl candidate should still be dependent on the
-                // DFFE source
-                auto [dff_src, dff_sink] = directed_edge;
+        // {
+        //     auto dff_loop_to_ctrl_pin_map_clone = dff_loop_to_ctrl_pin_map;
+        //     for (auto [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+        //         // If there is a combinatorial path from such bit to the original guess
+        //         // Replace the original bit with the new
+        //         //
+        //         // Note that the new ctrl candidate should still be dependent on the
+        //         // DFFE source
+        //         auto [dff_src, dff_sink] = directed_edge;
 
-                log("Examine edge: %s -> %s\n", log_id(dff_src), log_id(dff_sink));
-                std::set<CellPin> new_ctrl_bits = ctrl_bits;
-                for (CellPin old_ctrl_bit: ctrl_bits) {
-                    for (const auto& new_ctrl_bit: additional_ctrls) {
-                        if (new_ctrl_bit == old_ctrl_bit) {
-                            continue;
-                        }
+        //         log("Examine edge: %s -> %s\n", log_id(dff_src), log_id(dff_sink));
+        //         std::set<CellPin> new_ctrl_bits = ctrl_bits;
+        //         for (CellPin old_ctrl_bit: ctrl_bits) {
+        //             for (const auto& new_ctrl_bit: additional_ctrls) {
+        //                 if (new_ctrl_bit == old_ctrl_bit) {
+        //                     continue;
+        //                 }
 
-                        if (!circuit_graph.get_intermediate_comb_cells(
-                            new_ctrl_bit, old_ctrl_bit
-                        ).empty()) {
-                            bool src_dependent = false;
-                            for (int i = 0; i < GetSize(dff_src->getPort("\\Q")); ++i) {
-                                if (!circuit_graph.get_intermediate_comb_cells(
-                                    {dff_src, "\\Q", i},
-                                    new_ctrl_bit
-                                ).empty()) {
-                                    src_dependent = true;
-                                    break;
-                                }
-                            }
+        //                 if (!circuit_graph.get_intermediate_comb_cells(
+        //                     new_ctrl_bit, old_ctrl_bit
+        //                 ).empty()) {
+        //                     bool src_dependent = false;
+        //                     for (int i = 0; i < GetSize(dff_src->getPort("\\Q")); ++i) {
+        //                         if (!circuit_graph.get_intermediate_comb_cells(
+        //                             {dff_src, "\\Q", i},
+        //                             new_ctrl_bit
+        //                         ).empty()) {
+        //                             src_dependent = true;
+        //                             break;
+        //                         }
+        //                     }
 
-                            if (src_dependent) {
-                                log("Erase old ctrl: %s:%s\n", std::get<0>(old_ctrl_bit)->name.c_str(), std::get<1>(old_ctrl_bit).c_str());
-                                log("Replace with %s:%s\n", std::get<0>(new_ctrl_bit)->name.c_str(), std::get<1>(new_ctrl_bit).c_str());
-                                new_ctrl_bits.erase(old_ctrl_bit);
-                                log("Old ctrl bit count: %ld\n", new_ctrl_bits.count(old_ctrl_bit));
-                                new_ctrl_bits.insert(new_ctrl_bit);
-                            }
-                        }
-                    }
-                }
+        //                     if (src_dependent) {
+        //                         log("Erase old ctrl: %s:%s\n", std::get<0>(old_ctrl_bit)->name.c_str(), std::get<1>(old_ctrl_bit).c_str());
+        //                         log("Replace with %s:%s\n", std::get<0>(new_ctrl_bit)->name.c_str(), std::get<1>(new_ctrl_bit).c_str());
+        //                         new_ctrl_bits.erase(old_ctrl_bit);
+        //                         log("Old ctrl bit count: %ld\n", new_ctrl_bits.count(old_ctrl_bit));
+        //                         new_ctrl_bits.insert(new_ctrl_bit);
+        //                     }
+        //                 }
+        //             }
+        //         }
 
-                dff_loop_to_ctrl_pin_map_clone[directed_edge] = new_ctrl_bits;
-            }
+        //         dff_loop_to_ctrl_pin_map_clone[directed_edge] = new_ctrl_bits;
+        //     }
 
-            dff_loop_to_ctrl_pin_map = dff_loop_to_ctrl_pin_map_clone;
+        //     dff_loop_to_ctrl_pin_map = dff_loop_to_ctrl_pin_map_clone;
 
-            log("Promoted control bits\n");
-        }
+        //     log("Promoted control bits\n");
+        // }
 
-        // Try to promote inferred AND pins to replace control bits
-        // This is to improve positional precision
-        log("ctrl pin mappings after promotion:\n");
-        for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            auto [dff_src, dff_sink] = directed_edge;
-            for (CellPin ctrl_bit: ctrl_bits) {
-                log("%s -> %s:%s -> %s\n",
-                    log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
-            }
-        }
-        log("\n\n");
+        // // Try to promote inferred AND pins to replace control bits
+        // // This is to improve positional precision
+        // log("ctrl pin mappings after promotion:\n");
+        // for (auto& [directed_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
+        //     auto [dff_src, dff_sink] = directed_edge;
+        //     for (CellPin ctrl_bit: ctrl_bits) {
+        //         log("%s -> %s:%s -> %s\n",
+        //             log_id(dff_src), std::get<0>(ctrl_bit)->name.c_str(), std::get<1>(ctrl_bit).c_str(), log_id(dff_sink));
+        //     }
+        // }
+        // log("\n\n");
 
         std::set<RTLIL::Cell*> data_path_cell;
         data_path_cell.insert(data_regs.begin(), data_regs.end());
