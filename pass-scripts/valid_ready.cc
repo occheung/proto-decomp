@@ -184,8 +184,13 @@ struct ValidReadyPass : public Pass {
         // Store potential valid/ready bits of the entire circuit
         std::set<CellPin> ctrl_candidates;
 
-        // Properly group up the control bits by DFFE directional edges
-        dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::set<CellPin>> dff_loop_to_ctrl_pin_map;
+
+        // Record the most senior primary output, mapped by
+        // directed edges from a DFF to another
+        //
+        // FIXME: The pimary output should converge? Given that there should be a 1-bit edge
+        // connecting the DFFs on the path.
+        dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::pair<std::set<RTLIL::Cell*>, std::set<CellPin>>> dff_edge_primary_outputs;
 
         // Find the strongly connected component.
         for (RTLIL::Cell* dff: self_loop_dff) {
@@ -349,33 +354,34 @@ struct ValidReadyPass : public Pass {
                 src_pin_it->second = dominated_pins;
             }
 
-            // // Compute dominance for the SCC to aproximate the input of the FSM
-            // if (experimental) {
-            //     std::set<CellPin> non_scc_drivers;
-            //     for (const auto& [driver, _non_driver]: non_scc_sources) {
-            //         non_scc_drivers.insert(driver);
-            //     }
-            //     std::set<CellPin> fsm_inputs = circuit_graph.get_non_dominated_pins(non_scc_drivers);
-            //     log("Inputs:\n");
-            //     for (const auto& [in_cell, in_pin_name, in_pin_idx]: fsm_inputs) {
-            //         log("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
-            //     }
+            // Compute dominance for the SCC to approximate the interface of the FSM
+            {
+                std::set<CellPin> non_scc_drivers;
+                for (const auto& [driver, _non_driver]: non_scc_sources) {
+                    non_scc_drivers.insert(driver);
+                }
+                std::set<CellPin> fsm_inputs = circuit_graph.get_non_dominated_pins(non_scc_drivers);
+                log("Inputs:\n");
+                for (const auto& [in_cell, in_pin_name, in_pin_idx]: fsm_inputs) {
+                    log("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
+                }
 
-            //     std::set<CellPin> fsm_state_bits;
-            //     for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
-            //         fsm_state_bits.insert({dffe, "\\Q", i});
-            //     }
+                std::set<CellPin> fsm_state_bits;
+                for (int i = 0; i < GetSize(dff->getPort("\\Q")); ++i) {
+                    fsm_state_bits.insert({dff, "\\Q", i});
+                }
 
-            //     std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
-            //         fsm_state_bits,
-            //         fsm_inputs
-            //     );
+                // Give a More machine approximation of the output
+                std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
+                    fsm_state_bits,
+                    {}
+                );
 
-            //     log("Outputs:\n");
-            //     for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-            //         log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-            //     }
-            // }
+                log("Outputs:\n");
+                for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
+                    log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+                }
+            }
 
             // For each potential source pin of the FSM, find if it is dominated
             std::set<CellPin> non_dominated_sources;
@@ -449,90 +455,111 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            log("Viable 1-hop intermediate DFFE:\n");
+            log("Viable 1-hop intermediate DFF:\n");
             for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
                 log("%s\n", inter_dff->name.c_str());
             }
 
-            // if (experimental) {
-            //     // Find the intersection of the loop path and the DFF inputs
-            //     for (const CellPin& connected_input_bit: non_dominated_sources) {
-            //         for (RTLIL::Cell* inter_dffe: viable_intermediate_dffes) {
-            //             bool found_path = false;
-            //             for (int i = 0; i < GetSize(inter_dffe->getPort("\\Q")); ++i) {
-            //                 if (!circuit_graph.get_intermediate_comb_cells(
-            //                     {inter_dffe, "\\Q", i},
-            //                     connected_input_bit
-            //                 ).empty()) {
-            //                     found_path = true;
-            //                 } 
-            //             }
-                        
-            //             if (found_path) {
-            //                 // Mark the bit, exclude this input in output ctrl bit finding
-            //                 std::set<CellPin> adjusted_fsm_inputs = non_dominated_sources;
-            //                 adjusted_fsm_inputs.erase(connected_input_bit);
+            {
+                // Find the intersection of the loop path and the DFF inputs
+                for (const CellPin& connected_input_bit: non_dominated_sources) {
+                    for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
+                        bool found_path = false;
+                        for (int i = 0; i < GetSize(inter_dff->getPort("\\Q")); ++i) {
+                            if (!circuit_graph.get_intermediate_comb_cells(
+                                {inter_dff, "\\Q", i},
+                                connected_input_bit
+                            ).empty()) {
+                                found_path = true;
+                            }
+                        }
 
-            //                 std::set<CellPin> fsm_state_bits;
-            //                 for (int i = 0; i < GetSize(dffe->getPort("\\Q")); ++i) {
-            //                     fsm_state_bits.insert({dffe, "\\Q", i});
-            //                 }
+                        if (found_path) {
+                            // // Mark the bit, exclude this input in output ctrl bit finding
+                            // std::set<CellPin> adjusted_fsm_inputs = non_dominated_sources;
+                            // adjusted_fsm_inputs.erase(connected_input_bit);
 
-            //                 std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
-            //                     fsm_state_bits,
-            //                     // adjusted_fsm_inputs,
-            //                     {}
-            //                 );
+                            std::set<CellPin> fsm_state_bits;
+                            for (int i = 0; i < GetSize(dff->getPort("\\Q")); ++i) {
+                                fsm_state_bits.insert({dff, "\\Q", i});
+                            }
 
-            //                 log("Guess cell %s port %s index %d as input connection\n",
-            //                     log_id(std::get<0>(connected_input_bit)),
-            //                     log_id(std::get<1>(connected_input_bit)),
-            //                     std::get<2>(connected_input_bit));
-            //                 // for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-            //                 //     log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-            //                 // }
-            //                 // log("Guess ends\n\n");
+                            // Find the output bits using Moore machine approximation
+                            std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
+                                fsm_state_bits,
+                                // adjusted_fsm_inputs,
+                                {}
+                            );
 
-            //                 // See if any eligible output pins complete the path
-            //                 for (CellPin fsm_output: fsm_outputs) {
-            //                     const auto& [out_cell, out_pin_name, out_pin_idx] = fsm_output;
-            //                     log("Cell %s Pin %s:%d ", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-            //                     std::set<RTLIL::Cell*> half_path_set = circuit_graph.get_intermediate_comb_cells(
-            //                         fsm_output, {inter_dffe, "\\EN", 0});
-            //                     if (!half_path_set.empty()) {
-            //                         // Check if the output pin drives some other output pins
-            //                         // that also belongs to the path
-            //                         bool primary_output = true;
-            //                         for (Sink output_sink: circuit_graph.sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
-            //                             if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
-            //                                 continue;
-            //                             }
+                            // log("Guess cell %s port %s index %d as input connection\n",
+                            //     log_id(std::get<0>(connected_input_bit)),
+                            //     log_id(std::get<1>(connected_input_bit)),
+                            //     std::get<2>(connected_input_bit));
+                            // for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
+                            //     log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+                            // }
+                            // log("Guess ends\n\n");
 
-            //                             RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
-            //                             bool cell_controls_output = false;
-            //                             for (CellPin other_out_pin: fsm_outputs) {
-            //                                 if (std::get<0>(other_out_pin) == succ_cell) {
-            //                                     cell_controls_output = true;
-            //                                     break;
-            //                                 }
-            //                             }
-            //                             if (cell_controls_output && half_path_set.count(succ_cell)) {
-            //                                 primary_output = false;
-            //                                 break;
-            //                             }
-            //                         }
-            //                         if (primary_output) {
-            //                             log("PRIMARILY ");
-            //                         }
-            //                         log("forms a complete path\n");
-            //                     } else {
-            //                         log("does NOT form a complete path\n");
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
+                            // See if any eligible output pins complete the path
+                            std::set<CellPin> primary_outputs;
+                            std::set<RTLIL::Cell*> all_outputs_half_path_set;
+                            for (CellPin fsm_output: fsm_outputs) {
+                                const auto& [out_cell, out_pin_name, out_pin_idx] = fsm_output;
+                                log("Cell %s Pin %s:%d ", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+                                
+                                FfData inter_dff_data(&ff_init_vals, inter_dff);
+                                IdString dff_ctrl_port = inter_dff_data.has_ce? "\\EN": "\\D";
+                                std::set<RTLIL::Cell*> half_path_set;
+                                for (int i = 0; i < GetSize(inter_dff->getPort(dff_ctrl_port)); ++i) {
+                                    std::set<RTLIL::Cell*> i_half_path_set = circuit_graph.get_intermediate_comb_cells(
+                                        fsm_output, {inter_dff, dff_ctrl_port, i});
+                                    half_path_set.insert(i_half_path_set.begin(), i_half_path_set.end());
+                                }
+
+                                if (!half_path_set.empty()) {
+                                    all_outputs_half_path_set.insert(half_path_set.begin(), half_path_set.end());
+                                    // Check if the output pin drives some other output pins
+                                    // that also belongs to the path
+                                    //
+                                    // TODO: May strengthen this check if we first rewrite the FSM s.t.
+                                    // the outputs are a function of state variable then everything else
+                                    bool primary_output = true;
+                                    for (Sink output_sink: circuit_graph.sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
+                                        if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
+                                            continue;
+                                        }
+
+                                        RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
+                                        bool cell_controls_output = false;
+                                        for (CellPin other_out_pin: fsm_outputs) {
+                                            if (std::get<0>(other_out_pin) == succ_cell) {
+                                                cell_controls_output = true;
+                                                break;
+                                            }
+                                        }
+                                        if (cell_controls_output && half_path_set.count(succ_cell)) {
+                                            primary_output = false;
+                                            break;
+                                        }
+                                    }
+                                    if (primary_output) {
+                                        primary_outputs.insert({out_cell, out_pin_name, out_pin_idx});
+                                        log("PRIMARILY ");
+                                    }
+                                    log("forms a complete path\n");
+                                } else {
+                                    log("does NOT form a complete path\n");
+                                }
+                                auto [input_cell, input_port, input_idx] = connected_input_bit;
+                                log("directed to %s:%s:%d\n", 
+                                    log_id(input_cell), input_port.c_str(), input_idx);
+                            }
+
+                            dff_edge_primary_outputs[{dff, inter_dff}] = std::make_pair(all_outputs_half_path_set, primary_outputs);
+                        }
+                    }
+                }
+            }
             
             // Determine which non-SCC source is related to ready bit
             dict<CellPin, std::set<RTLIL::Cell*>> reg_ctrl_candidates;
@@ -570,14 +597,17 @@ struct ValidReadyPass : public Pass {
                 ctrl_candidates.insert(ctrl_bit);
             }
 
-            // Save the candidates to a yosys set
-            log("Found %ld control bit candidate\n", reg_ctrl_candidates.size());
-            for (const auto& [candidate_pin, inter_dff_set]: reg_ctrl_candidates) {
-                log("Cell %s; Port %s from DFF ", std::get<0>(candidate_pin)->name.c_str(), std::get<1>(candidate_pin).c_str());
-                for (const RTLIL::Cell* dff: inter_dff_set) {
-                    log("%s, ", dff->name.c_str());
-                }
-                log("\n");
+
+        for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
+            auto [src_dff, sink_dff] = dff_edge;
+            auto [half_path, primary_outputs] = payload;
+
+            log("\n");
+            log("Edge: %s -> %s\n", log_id(src_dff), log_id(sink_dff));
+            log("Primary outputs:\n");
+            for (const CellPin& primary_output: primary_outputs) {
+                auto [cell, port, idx] = primary_output;
+                log("%s:%s:%d\n", log_id(cell), port.c_str(), idx);
             }
             log("\n");
         }
@@ -726,20 +756,112 @@ struct ValidReadyPass : public Pass {
 
         // Record if DFFE loop has an associated data register
         std::set<std::set<std::pair<RTLIL::Cell*, CellPin>>> eligible_ctrl_bit_pairs;
-        for (const auto& [dffe_edge, ctrl_bits]: dff_loop_to_ctrl_pin_map) {
-            const auto& [dffe_src, dffe_sink] = dffe_edge;
+        for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
+            const auto& [dff_src, dff_sink] = dff_edge;
+            const auto& [half_path_set, primary_output] = payload;
+
             // Find the opposite edge
-            std::set<CellPin> opposite_ctrl_bits;
-            std::pair<RTLIL::Cell*, RTLIL::Cell*> opposite_edge = {dffe_sink, dffe_src};
-            if (dff_loop_to_ctrl_pin_map.count(opposite_edge)) {
-                opposite_ctrl_bits = dff_loop_to_ctrl_pin_map.at(opposite_edge);
+            std::pair<RTLIL::Cell*, RTLIL::Cell*> opposite_edge = {dff_sink, dff_src};
+            std::set<RTLIL::Cell*> opposite_half_path_set;
+            std::set<CellPin> opposite_primary_output;
+            if (dff_edge_primary_outputs.count(opposite_edge)) {
+                opposite_half_path_set = dff_edge_primary_outputs.at(opposite_edge).first;
+                opposite_primary_output = dff_edge_primary_outputs.at(opposite_edge).second;
             } else {
                 // The current DFFE cannot complete a loop with eligible ctrl bits
                 continue;
             }
 
-            for (const CellPin& ctrl_bit: ctrl_bits) {
-                log("Exanime %s <-> %s\n", log_id(dffe_src), log_id(dffe_sink));
+            auto get_first_divergence = [&] (
+                CellPin primary_out,
+                std::set<RTLIL::Cell*> control_path_cells,
+                std::set<RTLIL::Cell*> data_path_cells,
+                std::set<RTLIL::Cell*> opposite_data_path_cells
+            ) -> std::pair<CellPin, int> {
+                std::set<RTLIL::Cell*> common_cells;
+                std::set<RTLIL::Cell*> divergent_cells;
+                for (RTLIL::Cell* data_path_cell: data_path_cells) {
+                    if (control_path_cells.count(data_path_cell)) {
+                        common_cells.insert(data_path_cell);
+                    } else {
+                        divergent_cells.insert(data_path_cell);
+                    }
+                }
+
+                CellPin first_divergence;
+                bool found_divergence = false;
+                std::vector<CellPin> work_list;
+                work_list.push_back(primary_out);
+
+                for (RTLIL::Cell* common_cell: common_cells) {
+                    LOG("Common cell: %s\n", log_id(common_cell));
+                }
+
+                // Keep track of the divergence depth
+                // Eventually we need the depth to optimize triangulation guess
+                int depth = -1;
+
+                while (!work_list.empty() && !found_divergence) {
+                    depth += 1;
+
+                    auto [curr_cell, curr_port, curr_pin_idx] = work_list.back();
+                    work_list.pop_back();
+
+                    LOG("Trace from cell %s:%s:%d\n", log_id(curr_cell), curr_port.c_str(), curr_pin_idx);
+
+                    // If the logic path starts to branch, stop trasversing.
+                    bool found_suitable_successor = false;
+                    vector<Sink> curr_sinks = circuit_graph.sink_map.at(curr_cell).at(curr_port)[curr_pin_idx];
+                    for (Sink curr_sink: curr_sinks) {
+                        if (std::holds_alternative<RTLIL::SigBit>(curr_sink)) {
+                            continue;
+                        }
+
+                        auto [sink_cell, sink_port, sink_port_idx] = std::get<CellPin>(curr_sink);
+
+                        // The first condition is the first divergence condition. Self explanatory.
+                        // The second condition is to force selection before merging with opposite cells.
+                        if (divergent_cells.count(sink_cell) || opposite_data_path_cells.count(sink_cell)) {
+                            found_divergence = true;
+                            first_divergence = {curr_cell, curr_port, curr_pin_idx};
+                            break;
+                        }
+
+                        // If the sink is a sequential element WHILE not being the data component target, do not propagate there
+                        if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
+                            continue;
+                        }
+
+                        if (common_cells.count(sink_cell)) {
+                            if (found_suitable_successor) {
+                                // Stop searching divergence. The current pin is our best bet.
+                                found_divergence = true;
+                                first_divergence = {curr_cell, curr_port, curr_pin_idx};
+                                break;
+                            }
+                            found_suitable_successor = true;
+                            for (const auto& [port_name, port_sig]: sink_cell->connections()) {
+                                if (sink_cell->output(port_name)) {
+                                    for (int i = 0; i < GetSize(port_sig); ++i) {
+                                        work_list.push_back({sink_cell, port_name, i});
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (!found_divergence) {
+                    log_error("Divergnece cannot be located despite detected\n");
+                    return make_pair(primary_out, depth);
+                }
+
+                return make_pair(first_divergence, depth);
+            };
+
+            for (const CellPin& ctrl_bit: primary_output) {
+                log("\n\n");
+                log("Exanime %s <-> %s\n", log_id(dff_src), log_id(dff_sink));
 
                 for (RTLIL::Cell* data_reg: data_path_cell) {
                     CellPin data_path_ctrl_pin;
@@ -750,24 +872,81 @@ struct ValidReadyPass : public Pass {
                     }
 
                     // Control bits may be sourced to a datapath control pin combinatorially
-                    if (!circuit_graph.get_intermediate_comb_cells(
-                        ctrl_bit, data_path_ctrl_pin
-                    ).empty()) {
-                        for (const CellPin& other_ctrl_bit: opposite_ctrl_bits) {
-                            if (!circuit_graph.get_intermediate_comb_cells(
-                                other_ctrl_bit, data_path_ctrl_pin
-                            ).empty()) {
-                                log("Cell %s Port %s reaches Cell %s CE\n",
+                    std::set<RTLIL::Cell*> ctrl_bit_to_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                        ctrl_bit, data_path_ctrl_pin);
+                    
+                    if (!ctrl_bit_to_data_path_set.empty()) {
+                        // Find the first divergence from the half path
+                        //
+                        // It is equivalent to the cell furtherest from the primary output
+                        // The furthest should not have any sinks that are also divergence candidates
+                        //
+                        // FIXME: We can assume there are only 1
+                        // Otherwise, it shows that the FSM does not converge into a control bit before feeding into a control pin
+
+                        for (const CellPin& other_ctrl_bit: opposite_primary_output) {
+                            // Keep track of the proposed control bits paring and their depth
+                            // Only confirm the ones with least depth
+                            //
+                            // FIXME: Depth comarison is multidimensional since both directions have a depth
+                            int joint_depth = std::numeric_limits<int>::max();
+                            CellPin src_first_divergence_opt;
+                            CellPin sink_first_divergence_opt;
+
+                            std::set<RTLIL::Cell*> opposite_ctrl_bit_to_data_path = circuit_graph.get_intermediate_comb_cells(
+                                other_ctrl_bit, data_path_ctrl_pin);
+                            
+                            if (!opposite_ctrl_bit_to_data_path.empty()) {
+                                // DEBUG: log connected path
+                                log("%s:%s:%d has data path\n",
+                                    log_id(std::get<0>(ctrl_bit)),
+                                    std::get<1>(ctrl_bit).c_str(),
+                                    std::get<2>(ctrl_bit));
+                                for (RTLIL::Cell* path_cell: ctrl_bit_to_data_path_set) {
+                                    log("%s\n", log_id(path_cell));
+                                }
+                                log("\n");
+
+                                log("%s:%s:%d has data path\n",
+                                    log_id(std::get<0>(other_ctrl_bit)),
+                                    std::get<1>(other_ctrl_bit).c_str(),
+                                    std::get<2>(other_ctrl_bit));
+                                for (RTLIL::Cell* opposite_path_cell: opposite_ctrl_bit_to_data_path) {
+                                    log("%s\n", log_id(opposite_path_cell));
+                                }
+                                log("\n");
+
+                                LOG("From direction\n");
+                                auto [src_first_divergence, src_depth] = get_first_divergence(
+                                    ctrl_bit, half_path_set,
+                                    ctrl_bit_to_data_path_set, opposite_ctrl_bit_to_data_path);
+
+                                LOG("To direction\n");
+                                auto [sink_first_divergence, sink_depth] = get_first_divergence(
+                                    other_ctrl_bit, opposite_half_path_set,
+                                    opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
+
+                                LOG("Cell %s Port %s reaches Cell %s CE\n",
                                     std::get<0>(ctrl_bit)->name.c_str(),
                                     std::get<1>(ctrl_bit).c_str(),
                                     log_id(data_reg));
-                                log("Other ctrl pin: Cell %s; Port %s\n",
+                                LOG("Other ctrl pin: Cell %s; Port %s\n",
                                     std::get<0>(other_ctrl_bit)->name.c_str(),
                                     std::get<1>(other_ctrl_bit).c_str()
                                 );
+
+                                // Insert the new eligible pair if the divergence depth is shallower
+                                if (src_depth + sink_depth < joint_depth) {
+                                    joint_depth = src_depth + sink_depth;
+                                    src_first_divergence_opt = src_first_divergence;
+                                    sink_first_divergence_opt = sink_first_divergence;
+                                }
+                            }
+
+                            if (joint_depth != std::numeric_limits<int>::max()) {
                                 std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
-                                    {dffe_src, ctrl_bit},
-                                    {dffe_sink, other_ctrl_bit}};
+                                    {dff_src, src_first_divergence_opt},
+                                    {dff_sink, sink_first_divergence_opt}};
                                 eligible_ctrl_bit_pairs.insert(eligible_pair);
                             }
                         }
@@ -778,47 +957,76 @@ struct ValidReadyPass : public Pass {
                 // then to datapath control pin
                 //
                 // This will introduce 1 clock cycle delay
-                for (RTLIL::Cell* inter_dffe: self_loop_dff) {
-                    if (!circuit_graph.get_intermediate_comb_cells(
-                        ctrl_bit, {inter_dffe, "\\EN", 0}
-                    ).empty()) {
-                        for (CellPin other_ctrl_bit: opposite_ctrl_bits) {
-                            if (!circuit_graph.get_intermediate_comb_cells(
-                                other_ctrl_bit, {inter_dffe, "\\EN", 0}
-                            ).empty()) {
-                                log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
-                                    std::get<0>(ctrl_bit)->name.c_str(),
-                                    std::get<1>(ctrl_bit).c_str(),
-                                    log_id(inter_dffe));
-                                // Get all data output pins, try to reach some MUX selects
-                                FfData ff_data(&ff_init_vals, inter_dffe);
-                                for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
-                                    CellPin src = {inter_dffe, "\\Q", i};
+                for (CellPin other_ctrl_bit: opposite_primary_output) {
+                    int joint_depth = std::numeric_limits<int>::max();
+                    CellPin src_first_divergence_opt;
+                    CellPin sink_first_divergence_opt;
+                    for (RTLIL::Cell* inter_dff: self_loop_dff) {
+                        std::set<RTLIL::Cell*> ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                            ctrl_bit, {inter_dff, "\\EN", 0});
+                        std::set<RTLIL::Cell*> opposite_ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                            other_ctrl_bit, {inter_dff, "\\EN", 0});
+                        
+                        if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
+                            log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                std::get<0>(ctrl_bit)->name.c_str(),
+                                std::get<1>(ctrl_bit).c_str(),
+                                log_id(inter_dff));
+                            log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                std::get<0>(other_ctrl_bit)->name.c_str(),
+                                std::get<1>(other_ctrl_bit).c_str(),
+                                log_id(inter_dff));
 
-                                    for (RTLIL::Cell* mux: sinked_muxes) {
-                                        if (!circuit_graph.get_intermediate_comb_cells(
-                                            src, {mux, "\\S", 0}
-                                        ).empty()) {
-                                            // log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
-                                            //     std::get<0>(ctrl_bit)->name.c_str(),
-                                            //     std::get<1>(ctrl_bit).c_str(),
-                                            //     log_id(inter_dffe));
-                                            log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
-                                                std::get<0>(other_ctrl_bit)->name.c_str(),
-                                                std::get<1>(other_ctrl_bit).c_str(),
-                                                log_id(inter_dffe));
-                                            log("DFFE reaches MUX %s\n", log_id(mux));
+                            // Triangulate the exact location for both directions
+                            LOG("From direction\n");
+                            auto [src_first_divergence, src_depth] = get_first_divergence(
+                                ctrl_bit, half_path_set,
+                                ctrl_data_path_set, opposite_ctrl_data_path_set);
 
-                                            std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
-                                                {dffe_src, ctrl_bit},
-                                                {dffe_sink, other_ctrl_bit}};
-                                            eligible_ctrl_bit_pairs.insert(eligible_pair);
-                                            break;
-                                        }
+                            LOG("To direction\n");
+                            auto [sink_first_divergence, sink_depth] = get_first_divergence(
+                                other_ctrl_bit, opposite_half_path_set,
+                                opposite_ctrl_data_path_set, ctrl_data_path_set);
+                            
+                            // If the shallowness will not improve, don't both finding a sinkable MUX
+                            if (src_depth + sink_depth >= joint_depth) {
+                                continue;
+                            }
+
+                            // Get all data output pins, try to reach some MUX selects
+                            FfData ff_data(&ff_init_vals, inter_dff);
+                            for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
+                                CellPin src = {inter_dff, "\\Q", i};
+
+                                for (RTLIL::Cell* mux: sinked_muxes) {
+                                    if (!circuit_graph.get_intermediate_comb_cells(
+                                        src, {mux, "\\S", 0}
+                                    ).empty()) {
+                                        // log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                        //     std::get<0>(ctrl_bit)->name.c_str(),
+                                        //     std::get<1>(ctrl_bit).c_str(),
+                                        //     log_id(inter_dffe));
+                                        // log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                        //     std::get<0>(other_ctrl_bit)->name.c_str(),
+                                        //     std::get<1>(other_ctrl_bit).c_str(),
+                                        //     log_id(inter_dff));
+                                        log("DFFE reaches MUX %s\n", log_id(mux));
+
+                                        joint_depth = src_depth + sink_depth;
+                                        src_first_divergence_opt = src_first_divergence;
+                                        sink_first_divergence_opt = sink_first_divergence;
+                                        // The distance from ctrl register to data component doesn't impact the hueristic
+                                        break;
                                     }
                                 }
                             }
                         }
+                    }
+                    if (joint_depth != std::numeric_limits<int>::max()) {
+                        std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
+                            {dff_src, src_first_divergence_opt},
+                            {dff_sink, sink_first_divergence_opt}};
+                        eligible_ctrl_bit_pairs.insert(eligible_pair);
                     }
                 }
             }
