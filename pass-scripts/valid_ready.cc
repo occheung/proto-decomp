@@ -17,15 +17,11 @@ struct ValidReadyPass : public Pass {
     ValidReadyPass() : Pass("valid_ready") { }
 
     void execute(vector<string> args, Design *design) override {
-        bool experimental = false;
         if (args.size() > 1) {
             if (args[1] == "-debug") {
                 PASS_DEBUG = 1;
             } else {
                 PASS_DEBUG = 0;
-                if (args[1] == "-exp") {
-                    experimental = true;
-                }
             }
         } else {
             PASS_DEBUG = 0;
