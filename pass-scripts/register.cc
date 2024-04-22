@@ -152,61 +152,73 @@ struct RegisterRecover : public Pass {
             return;
         }
 
-        const SigMap sigmap(top);
+        int cell_count;
+        int new_cell_count;
+        int iterations = 0;
 
-        CircuitGraph circuit_graph(sigmap, top);
+        do {
+            cell_count = GetSize(top->cells());
+            const SigMap sigmap(top);
 
-        FfInitVals ff_init_vals(&sigmap, top);
+            CircuitGraph circuit_graph(sigmap, top);
 
-        // Registers set
-        // Similarity is transitive
-        std::vector<std::set<RTLIL::Cell*>> registers;
-        for (RTLIL::Cell* ff_cell: top->cells()) {
-            if (RTLIL::builtin_ff_cell_types().count(ff_cell->type)) {
-                // Either add this flip-flop to some existing register
-                bool matched = false;
-                for (size_t reg_idx = 0; reg_idx < registers.size(); ++reg_idx) {
-                    if (this->groupable(ff_init_vals, sigmap, *registers[reg_idx].begin(), ff_cell)) {
-                        matched = true;
-                        registers[reg_idx].insert(ff_cell);
-                        break;
+            FfInitVals ff_init_vals(&sigmap, top);
+
+            // Registers set
+            // Similarity is transitive
+            std::vector<std::set<RTLIL::Cell*>> registers;
+            for (RTLIL::Cell* ff_cell: top->cells()) {
+                if (RTLIL::builtin_ff_cell_types().count(ff_cell->type)) {
+                    // Either add this flip-flop to some existing register
+                    bool matched = false;
+                    for (size_t reg_idx = 0; reg_idx < registers.size(); ++reg_idx) {
+                        if (this->groupable(ff_init_vals, sigmap, *registers[reg_idx].begin(), ff_cell)) {
+                            matched = true;
+                            registers[reg_idx].insert(ff_cell);
+                            break;
+                        }
+                    }
+                    // Or group it into a separate register on its own
+                    if (!matched) {
+                        registers.push_back({ff_cell});
                     }
                 }
-                // Or group it into a separate register on its own
-                if (!matched) {
-                    registers.push_back({ff_cell});
-                }
-            }
-        }
-
-        // Evaluate flip flop groupings
-        // Split flip flops by external sinks (which excludes FF sinks not within the register)
-        std::vector<std::set<RTLIL::Cell*>> split_up_registers;
-        for (std::set<RTLIL::Cell*> reg_ffs: registers) {
-            std::map<std::set<RTLIL::Cell*>, std::set<RTLIL::Cell*>> sink_ffs_map;
-            for (RTLIL::Cell* ff_cell: reg_ffs) {
-                std::set<RTLIL::Cell*> sinks = circuit_graph.dff_sink_graph[ff_cell];
-                // External sinks only
-                // TODO: Should we distinguish sinks by proposed register sets?
-                for (RTLIL::Cell* ff_cell_clone: reg_ffs) {
-                    sinks.erase(ff_cell_clone);
-                }
-
-                if (sink_ffs_map.count(sinks) == 0) {
-                    sink_ffs_map[sinks] = {};
-                }
-                sink_ffs_map[sinks].insert(ff_cell);
             }
 
-            for (auto [ext_ff_sinks, new_reg_ffs]: sink_ffs_map) {
-                split_up_registers.push_back(new_reg_ffs);
-            }
-        }
+            // Evaluate flip flop groupings
+            // Split flip flops by external sinks (which excludes FF sinks not within the register)
+            std::vector<std::set<RTLIL::Cell*>> split_up_registers;
+            for (std::set<RTLIL::Cell*> reg_ffs: registers) {
+                std::map<std::set<RTLIL::Cell*>, std::set<RTLIL::Cell*>> sink_ffs_map;
+                for (RTLIL::Cell* ff_cell: reg_ffs) {
+                    std::set<RTLIL::Cell*> sinks = circuit_graph.dff_sink_graph[ff_cell];
+                    // External sinks only
+                    // TODO: Should we distinguish sinks by proposed register sets?
+                    for (RTLIL::Cell* ff_cell_clone: reg_ffs) {
+                        sinks.erase(ff_cell_clone);
+                    }
 
-        // Elevate DFF abstraction
-        for (const std::set<RTLIL::Cell*>& reg: split_up_registers) {
-            replace_ff_groups(top, reg, ff_init_vals);
-        }
+                    if (sink_ffs_map.count(sinks) == 0) {
+                        sink_ffs_map[sinks] = {};
+                    }
+                    sink_ffs_map[sinks].insert(ff_cell);
+                }
+
+                for (auto [ext_ff_sinks, new_reg_ffs]: sink_ffs_map) {
+                    split_up_registers.push_back(new_reg_ffs);
+                }
+            }
+
+            // Elevate DFF abstraction
+            for (const std::set<RTLIL::Cell*>& reg: split_up_registers) {
+                replace_ff_groups(top, reg, ff_init_vals);
+            }
+
+            new_cell_count = GetSize(top->cells());
+            iterations++;
+        } while (new_cell_count != cell_count);
+
+        log("Terminated after %d iterations\n", iterations);
     }
 
 } RegisterRecover;
