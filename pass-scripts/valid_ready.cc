@@ -107,7 +107,7 @@ struct ValidReadyPass : public Pass {
 
         // Consider each self looping register:
         // Could bits in the same register influence other bits?
-        std::set<RTLIL::Cell*> independent_dffs;
+        std::set<RTLIL::Cell*> independent_self_loop_dffs;
         for (RTLIL::Cell* dffe: self_loop_dff) {
             int dffe_width = GetSize(dffe->getPort("\\Q"));
 
@@ -135,12 +135,12 @@ struct ValidReadyPass : public Pass {
             }
 
             if (!cross_influence && dffe_width > 1) {
-                LOG("DFFE %s is not a FSM\n", log_id(dffe));
-                independent_dffs.insert(dffe);
+                log("DFFE %s is not an FSM\n", log_id(dffe));
+                independent_self_loop_dffs.insert(dffe);
             }
         }
 
-        for (RTLIL::Cell* independent_dff: independent_dffs) {
+        for (RTLIL::Cell* independent_dff: independent_self_loop_dffs) {
             self_loop_dff.erase(independent_dff);
         }
 
@@ -733,10 +733,10 @@ struct ValidReadyPass : public Pass {
                         int priority;
                         if (RTLIL::builtin_ff_cell_types().count(data_reg->type)) {
                             data_path_ctrl_pin = {data_reg, "\\EN", 0};
-                            if (independent_dffs.count(data_reg)) {
-                                priority = 3;
-                            } else {
+                            if (independent_self_loop_dffs.count(data_reg)) {
                                 priority = 1;
+                            } else {
+                                priority = 3;
                             }
                         } else {
                             data_path_ctrl_pin = {data_reg, "\\S", 0};
