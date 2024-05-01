@@ -286,6 +286,69 @@ struct CircuitGraph {
         return ret;
     }
 
+    // Return true if src can reach dest, as long as it is the case for some pair
+    // Only data dependence is considered. (i.e. DFF output does not depend on control inputs)
+    //
+    // Assume the CellPin are all outputs.
+    bool reachable(std::set<CellPin> srcs, std::set<CellPin> dests) const {
+        std::set<CellPin> visited;
+        std::vector<CellPin> work_list;
+
+        for (CellPin src: srcs) {
+            work_list.push_back(src);
+            visited.insert(src);
+        }
+
+        while (!work_list.empty()) {
+            auto [src_cell, src_port, src_pin_idx] = work_list.back();
+            work_list.pop_back();
+
+            // Base case: We have reached one of the destination
+            if (dests.count({src_cell, src_port, src_pin_idx})) {
+                return true;
+            }
+
+            for (Sink sink: this->sink_map.at(src_cell).at(src_port).at(src_pin_idx)) {
+                if (std::holds_alternative<RTLIL::SigBit>(sink)) {
+                    continue;
+                }
+
+                auto [sink_cell, sink_port, sink_pin_idx] = std::get<CellPin>(sink);
+
+                // DFFs: Propagate to Q port if not already visited
+                // MUXes: Propagate to Y port if not already visited
+                // Otherwise: Propagate to every single outputs if not already visited
+                if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
+                    CellPin prop = {sink_cell, "\\Q", sink_pin_idx};
+                    if (visited.count(prop) == 0) {
+                        visited.insert(prop);
+                        work_list.push_back(prop);
+                    }
+                } else if (sink_cell->type.in(ID($_MUX_))) {
+                    CellPin prop = {sink_cell, "\\Y", 0};
+                    if (visited.count(prop) == 0) {
+                        visited.insert(prop);
+                        work_list.push_back(prop);
+                    }
+                } else {
+                    for (const auto& [output_port, output_sig]: sink_cell->connections()) {
+                        if (sink_cell->output(output_port)) {
+                            for (int i = 0; i < GetSize(output_sig); ++i) {
+                                CellPin prop = {sink_cell, output_port, i};
+                                if (visited.count(prop) == 0) {
+                                    visited.insert(prop);
+                                    work_list.push_back(prop);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
     // Note: We only consider combinatorial elements
     std::set<CellPin> get_non_dominated_pins(const std::set<CellPin> srcs) const {
         // Directly controlled pins

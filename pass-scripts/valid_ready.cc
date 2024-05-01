@@ -609,6 +609,7 @@ struct ValidReadyPass : public Pass {
 
         // Record if DFFE loop has an associated data register
         std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::set<std::pair<RTLIL::Cell*, int>>> eligible_ctrl_bit_pairs;
+        std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::map<CellPin, std::set<CellPin>>> cut_edges;
         // Record the corresponding associated data components
         for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
             const auto& [dff_src, dff_sink] = dff_edge;
@@ -725,6 +726,7 @@ struct ValidReadyPass : public Pass {
                     int joint_depth = std::numeric_limits<int>::max();
                     CellPin src_first_divergence_opt;
                     CellPin sink_first_divergence_opt;
+                    std::map<CellPin, std::set<CellPin>> edges_to_be_cut_opt;
 
                     std::set<std::pair<RTLIL::Cell*, int>> dependent_data_components;
 
@@ -781,6 +783,41 @@ struct ValidReadyPass : public Pass {
                                 joint_depth = src_depth + sink_depth;
                                 src_first_divergence_opt = src_first_divergence;
                                 sink_first_divergence_opt = sink_first_divergence;
+                                edges_to_be_cut_opt.clear();
+                                edges_to_be_cut_opt[src_first_divergence] = {};
+                                edges_to_be_cut_opt[sink_first_divergence] = {};
+
+                                {
+                                    const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
+                                    for (const Sink& first_div_sink: circuit_graph.sink_map
+                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                            continue;
+                                        }
+                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                        // Add the sink to the edges to be cut set if
+                                        // the sink is part of the half path set
+                                        if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                        }
+                                    }
+                                }
+
+                                {
+                                    const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
+                                    for (const Sink& first_div_sink: circuit_graph.sink_map
+                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                            continue;
+                                        }
+                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                        // Add the sink to the edges to be cut set if
+                                        // the sink is part of the opposite half path set
+                                        if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -791,6 +828,7 @@ struct ValidReadyPass : public Pass {
                             {dff_sink, sink_first_divergence_opt}};
                         // eligible_ctrl_bit_pairs.insert(eligible_pair);
                         eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
+                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
 
                         // FIXME: continue the loop
                         // Should we prioritize direct ctrl pin connections?
@@ -869,6 +907,42 @@ struct ValidReadyPass : public Pass {
                                         // FIXME: Omitting the break for logging
                                         // // The distance from ctrl register to data component doesn't impact the hueristic
                                         // break;
+
+                                        edges_to_be_cut_opt.clear();
+                                        edges_to_be_cut_opt[src_first_divergence] = {};
+                                        edges_to_be_cut_opt[sink_first_divergence] = {};
+
+                                        {
+                                            const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
+                                            for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                    continue;
+                                                }
+                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                                // Add the sink to the edges to be cut set if
+                                                // the sink is part of the half path set
+                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                }
+                                            }
+                                        }
+
+                                        {
+                                            const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
+                                            for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                    continue;
+                                                }
+                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                                // Add the sink to the edges to be cut set if
+                                                // the sink is part of the half path set
+                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -880,6 +954,7 @@ struct ValidReadyPass : public Pass {
                             {dff_sink, sink_first_divergence_opt}};
                         // eligible_ctrl_bit_pairs.insert(eligible_pair);
                         eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
+                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
                     }
                 }
             }
@@ -963,6 +1038,7 @@ struct ValidReadyPass : public Pass {
 
         log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
 
+        std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::set<CellPin>> module_interfaces;
         for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
             auto eligible_it = eligible_pair.begin();
             auto [dffe_src, eligible_src] = *eligible_it;
@@ -1029,19 +1105,319 @@ struct ValidReadyPass : public Pass {
                     }
 
                     if (!chained_mux) {
-                        data_sources.insert({ctrl_cell, "\\S", 0});
+                        data_sources.insert({ctrl_cell, "\\Y", 0});
                     }
                 } else {
                     log_error("Found control cell that is neither a DFF nor a MUX\n");
                 }
             }
 
-            log("Found data interfaces:\n");
+            log("Found data interfaces at priority %d:\n", highest_priority);
             for (auto & [data_cell, data_port, data_pin_idx]: data_sources) {
                 log("%s:%s:%d\n", log_id(data_cell), data_port.c_str(), data_pin_idx);
             }
+            log("\n\n");
+
+            module_interfaces[eligible_pair] = data_sources;
         }
 
+        // Directed graph. Each edge states key can reach value eventually
+        std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::set<std::set<std::pair<RTLIL::Cell*, CellPin>>>> reachability_map;
+
+        for (const auto& [src_pair, data_interface]: module_interfaces) {
+            for (const auto& [other_pair, other_data_if]: module_interfaces) {
+                if (src_pair == other_pair) {
+                    continue;
+                }
+
+                if (circuit_graph.reachable(data_interface, other_data_if)) {
+                    if (reachability_map.count(src_pair)) {
+                        reachability_map[src_pair] = {};
+                    }
+
+                    auto src_it = src_pair.begin();
+                    auto [dff_src_src, eligible_src_src] = *src_it;
+
+                    std::advance(src_it, 1);
+                    auto [dff_sink_src, eligible_sink_src] = *src_it;
+
+                    auto other_it = other_pair.begin();
+                    auto [dff_src_sink, eligible_src_sink] = *other_it;
+
+                    std::advance(other_it, 1);
+                    auto [dff_sink_sink, eligible_sink_sink] = *other_it;
+
+                    log("DFF %s (CTRL %s:%s:%d) reaches DFF %s (CTRL %s:%s:%d)\n",
+                        log_id(dff_src_src), log_id(std::get<0>(eligible_src_src)), std::get<1>(eligible_src_src).c_str(), std::get<2>(eligible_src_src),
+                        log_id(dff_src_sink), log_id(std::get<0>(eligible_src_sink)), std::get<1>(eligible_src_sink).c_str(), std::get<2>(eligible_src_sink)
+                    );
+
+                    reachability_map[src_pair].insert(other_pair);
+                }
+            }
+        }
+
+        // TODO: Remove transitive closure
+
+        // For each pair, cut the DFF edge in the DFF graph
+        // Then, check reachability of both DFF with other pairs respectively
+        std::set<std::pair<CellPin, CellPin>> valid_ready_pair;
+        for (auto &[if_src, if_sinks]: reachability_map) {
+            auto src_it = if_src.begin();
+            auto [if_src_dff, if_src_pin] = *src_it;
+
+            std::advance(src_it, 1);
+            auto [if_other_src_dff, if_other_src_pin] = *src_it;
+
+            // Find the next combinatorial gates that goes through the interface control bits
+            std::set<CellPin> if_src_next_pins = cut_edges.at(if_src).at(if_src_pin);
+            std::set<CellPin> if_other_src_next_pins = cut_edges.at(if_src).at(if_other_src_pin);
+
+            for (const auto& if_sink: if_sinks) {
+                auto sink_it = if_sink.begin();
+                auto [if_sink_dff, if_sink_pin] = *sink_it;
+
+                std::advance(sink_it, 1);
+                auto [if_other_sink_dff, if_other_sink_pin] = *sink_it;
+
+                auto cut_graph_dff_reachable = [&](
+                    RTLIL::Cell* src,
+                    RTLIL::Cell* dest,
+                    std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removed_edges
+                ) {
+                    std::set<RTLIL::Cell*> reached_cells;
+                    
+                    std::vector<RTLIL::Cell*> work_list;
+                    work_list.push_back(src);
+
+                    while (!work_list.empty()) {
+                        RTLIL::Cell* curr = work_list.back();
+                        work_list.pop_back();
+
+                        reached_cells.insert(curr);
+
+                        if (curr == dest) {
+                            return true;
+                        }
+
+                        // Propagate
+                        if (circuit_graph.dff_sink_graph.count(curr)) {
+                            for (RTLIL::Cell* dff_sink: circuit_graph.dff_sink_graph.at(curr)) {
+                                // Ignore removed edges
+                                if (removed_edges.count(curr)) {
+                                    if (removed_edges.at(curr).count(dff_sink)) {
+                                        continue;
+                                    }
+                                }
+
+                                // Ignore data registers
+                                if (data_regs.count(dff_sink)) {
+                                    continue;
+                                }
+
+                                if (reached_cells.count(dff_sink) == 0) {
+                                    work_list.push_back(dff_sink);
+                                }
+                            }
+                        }
+                    }
+
+                    return false;
+                };
+
+                auto reachable_dff_sinks = [&](CellPin ctrl_bit) {
+                    std::set<RTLIL::Cell*> ret;
+
+                    std::vector<CellPin> work_list;
+                    work_list.push_back(ctrl_bit);
+                    while (!work_list.empty()) {
+                        auto [curr_cell, curr_port, curr_idx] = work_list.back();
+                        work_list.pop_back();
+
+                        for (Sink& sink: circuit_graph.sink_map.at(curr_cell).at(curr_port).at(curr_idx)) {
+                            if (std::holds_alternative<RTLIL::SigBit>(sink)) {
+                                continue;
+                            }
+
+                            auto [sink_cell, sink_port, _sink_idx] = std::get<CellPin>(sink);
+
+                            // Push it back to the returned list if a DFF is found
+                            // Do no propagate through temporal boundary
+                            if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
+                                ret.insert(sink_cell);
+                                continue;
+                            }
+
+                            // Propagate through combinatorial cells
+                            for (const auto& [sink_out_port, sink_out_sig]: sink_cell->connections()) {
+                                if (sink_cell->output(sink_out_port)) {
+                                    for (int i = 0; i < GetSize(sink_out_sig); ++i) {
+                                        work_list.push_back({sink_cell, sink_out_port, i});
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return ret;
+                };
+
+                auto reachable_dff_sources = [&](CellPin ctrl_bit) {
+                    std::set<RTLIL::Cell*> ret;
+
+                    std::vector<CellPin> work_list;
+                    work_list.push_back(ctrl_bit);
+                    while (!work_list.empty()) {
+                        // We assume the pins are always outputs of some cells
+                        auto [curr_cell, curr_port, curr_idx] = work_list.back();
+                        work_list.pop_back();
+
+                        if (RTLIL::builtin_ff_cell_types().count(curr_cell->type)) {
+                            ret.insert(curr_cell);
+                            continue;
+                        }
+
+                        for (const auto& [curr_in_port, curr_in_sig]: curr_cell->connections()) {
+                            if (curr_cell->input(curr_in_port)) {
+                                for (int i = 0; i < GetSize(curr_in_sig); ++i) {
+                                    const Source& source = circuit_graph.source_map.at(curr_cell).at(curr_in_port).at(i);
+                                    if (std::holds_alternative<RTLIL::SigBit>(source)) {
+                                        continue;
+                                    }
+                                    work_list.push_back(std::get<CellPin>(source));
+                                }
+                            }
+                        }
+                    }
+
+                    return ret;
+                };
+
+                // Find potential DFF paths that pass through the chokepoints
+                // Remove these paths
+                std::set<CellPin> chokepoints = {if_src_pin, if_other_src_pin, if_sink_pin, if_other_sink_pin};
+                std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removals;
+                for (CellPin chokepoint: chokepoints) {
+                    std::set<RTLIL::Cell*> dff_srcs = reachable_dff_sources(chokepoint);
+                    std::set<RTLIL::Cell*> dff_sinks = reachable_dff_sinks(chokepoint);
+
+                    for (RTLIL::Cell* dff_src: dff_srcs) {
+                        if (removals.count(dff_src) == 0) {
+                            removals[dff_src] = {};
+                        }
+                        removals[dff_src].insert(dff_sinks.begin(), dff_sinks.end());
+                    }
+                }
+
+                // Test which DFFs are reachable to which
+                // For each source DFF, try to reach one of the sink DFFs
+                auto cut_graph_dff_reachable_from_ctrl = [&](
+                    const std::set<CellPin> ctrl_bit_critical_sinks,
+                    RTLIL::Cell* ctrl_fsm_dff,
+                    RTLIL::Cell* target_dff,
+                    std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removed_edges
+                ) {
+                    std::set<RTLIL::Cell*> dff_direct_sinks;
+                    for (const CellPin& crit_sink_pin: ctrl_bit_critical_sinks) {
+                        // Convert sink pins into outputs
+                        auto [crit_cell, crit_port, crit_idx] = crit_sink_pin;
+                        if (RTLIL::builtin_ff_cell_types().count(crit_cell->type)) {
+                            dff_direct_sinks.insert(crit_cell);
+                            continue;
+                        }
+
+                        for (const auto& [out_port, out_sig]: crit_cell->connections()) {
+                            if (crit_cell->output(out_port)) {
+                                for (int i = 0; i < GetSize(out_sig); ++i) {
+                                    log("Attempt to find reachable DFFs\n");
+                                    std::set<RTLIL::Cell*> reachables = reachable_dff_sinks({
+                                        crit_cell, out_port, i
+                                    });
+                                    log("Found reachable DFFs\n");
+                                    dff_direct_sinks.insert(reachables.begin(), reachables.end());
+                                }
+                            }
+                        }
+                    }
+
+                    for (RTLIL::Cell* direct_sink: dff_direct_sinks) {
+                        // First, the target DFFs could be reached directly
+                        if (target_dff == direct_sink) {
+                            return true;
+                        }
+
+                        // Ignore data registers
+                        if (data_regs.count(direct_sink)) {
+                            continue;
+                        }
+
+                        // It is also possible to reach the target indirectly
+                        if (cut_graph_dff_reachable(
+                            direct_sink,
+                            target_dff,
+                            removed_edges
+                        )) {
+                            return true;
+                        }
+                    }
+
+                    return false;
+                };
+
+                log("\n");
+                for (auto& [reg, reg_sinks]: circuit_graph.dff_source_graph) {
+                    log("Source: %s\n", log_id(reg));
+                    for (RTLIL::Cell* reg_sink: reg_sinks) {
+                        // Skip removed edges
+                        if (removals.count(reg)) {
+                            if (removals.at(reg).count(reg_sink)) {
+                                continue;
+                            }
+                        }
+                        log("Sink: %s\n", log_id(reg_sink));
+                    }
+                    log("\n");
+                }
+
+                bool this_src_this_sink_reachable = cut_graph_dff_reachable_from_ctrl(
+                    if_src_next_pins, if_src_dff, if_sink_dff, removals
+                );
+                bool this_src_other_sink_reachable = cut_graph_dff_reachable_from_ctrl(
+                    if_src_next_pins, if_src_dff, if_other_sink_dff, removals
+                );
+                bool other_src_this_sink_reachable = cut_graph_dff_reachable_from_ctrl(
+                    if_other_src_next_pins, if_other_src_dff, if_sink_dff, removals
+                );
+                bool other_src_other_sink_reachable = cut_graph_dff_reachable_from_ctrl(
+                    if_other_src_next_pins, if_other_src_dff, if_other_sink_dff, removals
+                );
+
+                if (this_src_this_sink_reachable) {
+                    log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_sink_dff));
+                }
+
+                if (this_src_other_sink_reachable) {
+                    log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_other_sink_dff));
+                }
+
+                if (other_src_this_sink_reachable) {
+                    log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_sink_dff));
+                }
+
+                if (other_src_other_sink_reachable) {
+                    log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_other_sink_dff));
+                }
+
+                if (
+                    !this_src_this_sink_reachable &&
+                    !this_src_other_sink_reachable &&
+                    !other_src_this_sink_reachable &&
+                    !other_src_other_sink_reachable
+                ) {
+                    log("Grouping unclear!\n");
+                }
+            }
+        }
     }
 } ValidReadyPass;
 
