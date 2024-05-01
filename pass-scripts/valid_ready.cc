@@ -1394,18 +1394,26 @@ struct ValidReadyPass : public Pass {
 
                 if (this_src_this_sink_reachable) {
                     log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_sink_dff));
+                    valid_ready_pair.insert({if_other_src_pin, if_src_pin});
+                    valid_ready_pair.insert({if_sink_pin, if_other_sink_pin});
                 }
 
                 if (this_src_other_sink_reachable) {
                     log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_other_sink_dff));
+                    valid_ready_pair.insert({if_other_src_pin, if_src_pin});
+                    valid_ready_pair.insert({if_other_sink_pin, if_sink_pin});
                 }
 
                 if (other_src_this_sink_reachable) {
                     log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_sink_dff));
+                    valid_ready_pair.insert({if_src_pin, if_other_src_pin});
+                    valid_ready_pair.insert({if_other_sink_pin, if_sink_pin});
                 }
 
                 if (other_src_other_sink_reachable) {
                     log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_other_sink_dff));
+                    valid_ready_pair.insert({if_other_src_pin, if_src_pin});
+                    valid_ready_pair.insert({if_other_sink_pin, if_sink_pin});
                 }
 
                 if (
@@ -1417,6 +1425,13 @@ struct ValidReadyPass : public Pass {
                     log("Grouping unclear!\n");
                 }
             }
+        }
+
+        log("\n");
+        for (auto [valid, ready]: valid_ready_pair) {
+            log("Valid: %s:%s\n", log_id(std::get<0>(valid)), std::get<1>(valid).c_str());
+            log("Ready: %s:%s\n", log_id(std::get<0>(ready)), std::get<1>(ready).c_str());
+            log("\n");
         }
     }
 } ValidReadyPass;
