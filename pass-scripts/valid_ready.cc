@@ -1038,6 +1038,8 @@ struct ValidReadyPass : public Pass {
 
         log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
 
+        std::set<RTLIL::Cell*> global_data_interfaces;
+
         std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::set<CellPin>> module_interfaces;
         for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
             auto eligible_it = eligible_pair.begin();
@@ -1114,12 +1116,24 @@ struct ValidReadyPass : public Pass {
 
             log("Found data interfaces at priority %d:\n", highest_priority);
             for (auto & [data_cell, data_port, data_pin_idx]: data_sources) {
+                global_data_interfaces.insert(data_cell);
                 log("%s:%s:%d\n", log_id(data_cell), data_port.c_str(), data_pin_idx);
             }
             log("\n\n");
 
             module_interfaces[eligible_pair] = data_sources;
         }
+
+        // Record in Yosys set
+        std::stringstream ss;
+        ss << "select -set data_comp ";
+
+        for (RTLIL::Cell* data_comp: global_data_interfaces) {
+            ss << "c:" << data_comp->name.c_str() << " ";
+        }
+
+        Pass::call(design, ss.str().c_str());
+        // Pass::call(design, "show -color red @data_comp");
 
         // Directed graph. Each edge states key can reach value eventually
         std::map<std::set<std::pair<RTLIL::Cell*, CellPin>>, std::set<std::set<std::pair<RTLIL::Cell*, CellPin>>>> reachability_map;
