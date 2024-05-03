@@ -1329,11 +1329,9 @@ struct ValidReadyPass : public Pass {
                         for (const auto& [out_port, out_sig]: crit_cell->connections()) {
                             if (crit_cell->output(out_port)) {
                                 for (int i = 0; i < GetSize(out_sig); ++i) {
-                                    log("Attempt to find reachable DFFs\n");
                                     std::set<RTLIL::Cell*> reachables = reachable_dff_sinks({
                                         crit_cell, out_port, i
                                     });
-                                    log("Found reachable DFFs\n");
                                     dff_direct_sinks.insert(reachables.begin(), reachables.end());
                                 }
                             }
@@ -1363,21 +1361,6 @@ struct ValidReadyPass : public Pass {
 
                     return false;
                 };
-
-                log("\n");
-                for (auto& [reg, reg_sinks]: circuit_graph.dff_source_graph) {
-                    log("Source: %s\n", log_id(reg));
-                    for (RTLIL::Cell* reg_sink: reg_sinks) {
-                        // Skip removed edges
-                        if (removals.count(reg)) {
-                            if (removals.at(reg).count(reg_sink)) {
-                                continue;
-                            }
-                        }
-                        log("Sink: %s\n", log_id(reg_sink));
-                    }
-                    log("\n");
-                }
 
                 bool this_src_this_sink_reachable = cut_graph_dff_reachable_from_ctrl(
                     if_src_next_pins, if_src_dff, if_sink_dff, removals
