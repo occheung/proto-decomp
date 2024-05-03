@@ -4,6 +4,7 @@
 #include "kernel/ffinit.h"
 #include "kernel/ff.h"
 #include "graph.h"
+#include "data_path.h"
 
 
 USING_YOSYS_NAMESPACE
@@ -143,6 +144,8 @@ struct ValidReadyPass : public Pass {
         for (RTLIL::Cell* independent_dff: independent_self_loop_dffs) {
             self_loop_dff.erase(independent_dff);
         }
+
+        DataPath data_path(sigmap, top);
 
         // Find data registers
         // TODO: Define data registers as registers with CE but not classified as FSMs
