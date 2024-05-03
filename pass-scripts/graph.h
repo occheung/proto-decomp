@@ -7,6 +7,10 @@ USING_YOSYS_NAMESPACE
 PRIVATE_NAMESPACE_BEGIN
 
 
+#ifndef CIRCUITGRAPH_H
+#define CIRCUITGRAPH_H
+
+
 typedef std::tuple<RTLIL::Cell*, IdString, int> CellPin;
 typedef std::variant<CellPin, RTLIL::SigBit> Sink;
 // Syntactic sugar
@@ -619,5 +623,7 @@ struct CircuitGraph {
         return ret;
     }
 };
+
+#endif
 
 PRIVATE_NAMESPACE_END
