@@ -1,5 +1,6 @@
 let
-    pkgs = import <nixpkgs> { };
+    moz_overlay = import (builtins.fetchTarball https://github.com/mozilla/nixpkgs-mozilla/archive/master.tar.gz);
+    pkgs = import <nixpkgs> { overlays = [ moz_overlay ]; };
 in with pkgs;
 let
     yosys-cxx17 = pkgs.yosys.overrideAttrs(oa: {
@@ -24,5 +25,6 @@ in
             pkgs.xdot
             pkgs.readline
             pkgs.yosys-synlig
+            (pkgs.rustChannelOf { date = "2022-09-27"; channel = "nightly"; }).rust
         ];
     }
