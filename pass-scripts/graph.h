@@ -137,14 +137,9 @@ struct CircuitGraph {
                     } else {
                         // Filter output pin connections towards module outputs
                         // Directly write the pin to the sink map
-                        //
-                        // FIXME: The output wire can drive other cells in the same module
                         if (is_output_wire(bit.wire)) {
                             this->sink_map[cell][port_name][i].push_back(bit);
                         }
-                        // else {
-                        //     bit_out_pin_map[bit] = pin;
-                        // }
 
                         // Output wire needs to be propagated to the SigBit maps
                         // It can drive other internal cells
