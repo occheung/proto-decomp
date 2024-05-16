@@ -15,6 +15,11 @@ typedef std::tuple<RTLIL::Cell*, IdString, int> CellPin;
 typedef std::variant<CellPin, RTLIL::SigBit> Sink;
 // Syntactic sugar
 typedef Sink Source;
+typedef std::pair<CellPin, CellPin> Wire;
+
+typedef std::pair<RTLIL::Cell*, CellPin> HandshakeInfo;
+typedef std::set<Wire> DataInterface;
+typedef std::tuple<HandshakeInfo, HandshakeInfo, DataInterface> ValidReadyProto;
 
 
 struct CircuitGraph {
