@@ -76,6 +76,42 @@ struct CircuitGraph {
             }
         }
 
+        // Collect a set of input wires and output wires
+        std::set<RTLIL::Wire*> input_wires;
+        std::set<RTLIL::Wire*> output_wires;
+        for (RTLIL::Wire* wire: module->wires()) {
+            if (wire->port_input) {
+                input_wires.insert(wire);
+            } else if (wire->port_output) {
+                output_wires.insert(wire);
+            }
+        }
+
+        // Check all inputs and outputs before concluding the wire is an IO
+        // This is necessaery because IO may be connected indirectly to cells
+        auto is_input_wire = [&](
+            RTLIL::Wire* wire
+        ) -> bool {
+            for (RTLIL::Wire* in_wire: input_wires) {
+                if (sigmap(in_wire) == sigmap(wire)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        auto is_output_wire = [&](
+            RTLIL::Wire* wire
+        ) -> bool {
+            for (RTLIL::Wire* out_wire: output_wires) {
+                if (sigmap(out_wire) == sigmap(wire)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+
         // Populate SigBit maps
         for (RTLIL::Cell* cell: module->cells()) {
             for (auto& [port_name, unmapped_port_sig_spec]: cell->connections()) {
@@ -88,7 +124,7 @@ struct CircuitGraph {
                         // If the bit is just a constant, skip the SigBit map process
                         // If the bit is module input, skip as well
                         // It does not contribute to the connectivity problem
-                        if (!(bit.is_wire()) || bit.wire->port_input) {
+                        if (!(bit.is_wire()) || is_input_wire(bit.wire)) {
                             this->source_map[cell][port_name][i] = bit;
                         } else {
                             // Fill in SigBit info
@@ -103,7 +139,7 @@ struct CircuitGraph {
                         // Directly write the pin to the sink map
                         //
                         // FIXME: The output wire can drive other cells in the same module
-                        if (bit.wire->port_output) {
+                        if (is_output_wire(bit.wire)) {
                             this->sink_map[cell][port_name][i].push_back(bit);
                         }
                         // else {
