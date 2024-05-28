@@ -658,6 +658,193 @@ struct CircuitGraph {
 
         return ret;
     }
+
+    std::pair<std::set<RTLIL::Cell*> ,std::set<CellPin>> get_primary_outputs(
+        std::set<RTLIL::Cell*> source_fsm_ffs,
+        std::set<RTLIL::Cell*> sink_fsm_ffs,
+        FfInitVals* ff_init_vals
+    ) const {
+        // If the source and sinks are not interconnected,
+        // Immediately return an empty set
+        bool has_path = false;
+        for (RTLIL::Cell* src_ff: source_fsm_ffs) {
+            for (int out_pin_idx = 0; out_pin_idx < GetSize(src_ff->getPort("\\Q")); ++out_pin_idx) {
+                CellPin src_pin = {src_ff, "\\Q", out_pin_idx};
+                for (RTLIL::Cell* sink_ff: sink_fsm_ffs) {
+                    // Decide whether the sinking port is EN or D
+                    FfData sink_ff_data(ff_init_vals, sink_ff);
+                    IdString sink_port = sink_ff_data.has_ce? "\\EN": "\\D";
+
+                    for (int in_pin_idx = 0; in_pin_idx < GetSize(src_ff->getPort(sink_port)); ++in_pin_idx) {
+                        CellPin sink_pin = {sink_ff, sink_port, in_pin_idx};
+
+                        // Check reachability
+                        std::set<RTLIL::Cell*> inter_cells = this->get_intermediate_comb_cells(src_pin, sink_pin);
+                        if (!inter_cells.empty()) {
+                            has_path = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!has_path) {
+            return {{}, {}};
+        }
+
+        // Find the output pins of the FF group
+        // Output pins feed to cells that are not totally dependent on the FF group
+        std::set<CellPin> ff_group_state_bits;
+        for (RTLIL::Cell* src_ff: source_fsm_ffs) {
+            for (int out_pin_idx = 0; out_pin_idx < GetSize(src_ff->getPort("\\Q")); ++out_pin_idx) {
+                ff_group_state_bits.insert({src_ff, "\\Q", out_pin_idx});
+            }
+        }
+        std::set<CellPin> ff_group_outputs = this->get_dominated_frontier(
+            ff_group_state_bits,
+            {}
+        );
+
+        // Find the primary output pins
+        // Output pins are primary if it does not drive any outputs that
+        // also feeds into the sink FF
+        std::set<CellPin> primary_outputs;
+        std::set<RTLIL::Cell*> all_outputs_half_path_set;
+        for (CellPin output: ff_group_outputs) {
+            const auto& [out_cell, out_pin_name, out_pin_idx] = output;
+
+            // A set of cells that are intermediates between the output pins and the sink FFs
+            std::set<RTLIL::Cell*> half_path_set;
+            for (RTLIL::Cell* sink_ff: sink_fsm_ffs) {
+                FfData sink_ff_data(ff_init_vals, sink_ff);
+                IdString sink_port = sink_ff_data.has_ce? "\\EN": "\\D";
+
+                for (int sink_port_idx = 0; sink_port_idx < GetSize(sink_ff->getPort(sink_port)); ++sink_port_idx) {
+                    std::set<RTLIL::Cell*> i_half_path_set = this->get_intermediate_comb_cells(
+                        output, {sink_ff, sink_port, sink_port_idx}
+                    );
+
+                    half_path_set.insert(i_half_path_set.begin(), i_half_path_set.end());
+                } 
+            }
+
+            if (!half_path_set.empty()) {
+                all_outputs_half_path_set.insert(half_path_set.begin(), half_path_set.end());
+
+                bool primary_output = true;
+                for (Sink output_sink: this->sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
+                    // Not interested in boundary cases
+                    if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
+                        continue;
+                    }
+
+                    // If there exist some successor of this output pin, where it is also an output pin,
+                    // This output pin is not a primary output pin
+                    RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
+                    bool cell_controls_output = false;
+                    for (CellPin other_out_pin: ff_group_outputs) {
+                        if (std::get<0>(other_out_pin) == succ_cell) {
+                            cell_controls_output = true;
+                            break;
+                        }
+                    }
+                    if (cell_controls_output && half_path_set.count(succ_cell)) {
+                        primary_output = false;
+                        break;
+                    }
+                }
+
+                if (primary_output) {
+                    primary_outputs.insert(output);
+                }
+            }
+        }
+
+        return {
+            all_outputs_half_path_set, primary_outputs
+        };
+    }
+
+    std::pair<CellPin, int> get_first_divergence(
+        CellPin primary_out,
+        std::set<RTLIL::Cell*> control_path_cells,
+        std::set<RTLIL::Cell*> data_path_cells,
+        std::set<RTLIL::Cell*> opposite_data_path_cells
+    ) {
+        std::set<RTLIL::Cell*> common_cells;
+        std::set<RTLIL::Cell*> divergent_cells;
+        for (RTLIL::Cell* data_path_cell: data_path_cells) {
+            if (control_path_cells.count(data_path_cell)) {
+                common_cells.insert(data_path_cell);
+            } else {
+                divergent_cells.insert(data_path_cell);
+            }
+        }
+
+        CellPin first_divergence;
+        bool found_divergence = false;
+        std::vector<CellPin> work_list;
+        work_list.push_back(primary_out);
+
+        // Keep track of the divergence depth
+        // Eventually we need the depth to optimize triangulation guess
+        int depth = -1;
+
+        while (!work_list.empty() && !found_divergence) {
+            depth += 1;
+
+            auto [curr_cell, curr_port, curr_pin_idx] = work_list.back();
+            work_list.pop_back();
+
+            // If the logic path starts to branch, stop trasversing.
+            bool found_suitable_successor = false;
+            vector<Sink> curr_sinks = this->sink_map.at(curr_cell).at(curr_port)[curr_pin_idx];
+            for (Sink curr_sink: curr_sinks) {
+                if (std::holds_alternative<RTLIL::SigBit>(curr_sink)) {
+                    continue;
+                }
+
+                auto [sink_cell, sink_port, sink_port_idx] = std::get<CellPin>(curr_sink);
+
+                // The first condition is the first divergence condition. Self explanatory.
+                // The second condition is to force selection before merging with opposite cells.
+                if (divergent_cells.count(sink_cell) || opposite_data_path_cells.count(sink_cell)) {
+                    found_divergence = true;
+                    first_divergence = {curr_cell, curr_port, curr_pin_idx};
+                    break;
+                }
+
+                // If the sink is a sequential element WHILE not being the data component target, do not propagate there
+                if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
+                    continue;
+                }
+
+                if (common_cells.count(sink_cell)) {
+                    if (found_suitable_successor) {
+                        // Stop searching divergence. The current pin is our best bet.
+                        found_divergence = true;
+                        first_divergence = {curr_cell, curr_port, curr_pin_idx};
+                        break;
+                    }
+                    found_suitable_successor = true;
+                    for (const auto& [port_name, port_sig]: sink_cell->connections()) {
+                        if (sink_cell->output(port_name)) {
+                            for (int i = 0; i < GetSize(port_sig); ++i) {
+                                work_list.push_back({sink_cell, port_name, i});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!found_divergence) {
+            log_error("Divergnece cannot be located despite detected\n");
+            return make_pair(primary_out, depth);
+        }
+
+        return make_pair(first_divergence, depth);
+    };
 };
 
 #endif
