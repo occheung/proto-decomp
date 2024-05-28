@@ -8,7 +8,7 @@ class StreamDemux(Module):
     def __init__(self):
         DATA_WIDTH = 8
         LAYOUT = [("data", DATA_WIDTH)]
-        NUM_OF_SINKS = 2
+        NUM_OF_SINKS = 4
 
         self.submodules.source_fifo = stream.SyncFIFO(
             LAYOUT,     # layout
