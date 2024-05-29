@@ -181,6 +181,10 @@ struct Handshake {
         return {};
     }
 
+    bool operator ==(const Handshake& other) const {
+        return this->info == other.info;
+    }
+
     bool operator <(const Handshake& other) const {
         auto this_it = this->info.begin();
         auto other_it = other.info.begin();
@@ -202,6 +206,15 @@ struct ConnectedModules {
     std::set<std::set<RTLIL::Cell*>> inner;
 
     ConnectedModules() = delete;
+
+    ConnectedModules(
+        std::set<RTLIL::Cell*> dff0,
+        std::set<RTLIL::Cell*> dff1
+    ) {
+        this->inner.insert(dff0);
+        this->inner.insert(dff1);
+    }
+
     ConnectedModules(const Handshake& handshake) {
         auto [if0, if1] = handshake.decompose();
         std::set<RTLIL::Cell*> dff0 = std::get<1>(if0);
