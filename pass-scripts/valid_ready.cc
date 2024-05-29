@@ -206,6 +206,9 @@ struct ValidReadyPass : public Pass {
         // connecting the DFFs on the path.
         dict<std::pair<RTLIL::Cell*, RTLIL::Cell*>, std::pair<std::set<RTLIL::Cell*>, std::set<CellPin>>> dff_edge_primary_outputs;
 
+        // Set of interconnected DFF groups
+        std::set<ConnectedModules> handshake_compute_buffer;
+
         // Find the strongly connected component.
         for (RTLIL::Cell* dff: self_loop_dff) {
             log("Suspected state register: %s\n", dff->name.c_str());
@@ -375,9 +378,9 @@ struct ValidReadyPass : public Pass {
                     non_scc_drivers.insert(driver);
                 }
                 std::set<CellPin> fsm_inputs = circuit_graph.get_non_dominated_pins(non_scc_drivers);
-                log("Inputs:\n");
+                LOG("Inputs:\n");
                 for (const auto& [in_cell, in_pin_name, in_pin_idx]: fsm_inputs) {
-                    log("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
+                    LOG("Cell %s Pin %s:%d\n", in_cell->name.c_str(), in_pin_name.c_str(), in_pin_idx);
                 }
 
                 std::set<CellPin> fsm_state_bits;
@@ -391,9 +394,9 @@ struct ValidReadyPass : public Pass {
                     {}
                 );
 
-                log("Outputs:\n");
+                LOG("Outputs:\n");
                 for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-                    log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
+                    LOG("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
                 }
             }
 
@@ -459,6 +462,7 @@ struct ValidReadyPass : public Pass {
 
                 if (dff_sinks.count(dff_src)) {
                     viable_intermediate_dffs.insert(dff_src);
+                    handshake_compute_buffer.insert(ConnectedModules({dff}, {dff_src}));
                 }
             }
 
@@ -466,122 +470,6 @@ struct ValidReadyPass : public Pass {
             for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
                 log("%s\n", inter_dff->name.c_str());
             }
-
-            // TODO: Reuse functions in graph.h
-            {
-                // Find the intersection of the loop path and the DFF inputs
-                for (const CellPin& connected_input_bit: non_dominated_sources) {
-                    for (RTLIL::Cell* inter_dff: viable_intermediate_dffs) {
-                        bool found_path = false;
-                        for (int i = 0; i < GetSize(inter_dff->getPort("\\Q")); ++i) {
-                            if (!circuit_graph.get_intermediate_comb_cells(
-                                {inter_dff, "\\Q", i},
-                                connected_input_bit
-                            ).empty()) {
-                                found_path = true;
-                            }
-                        }
-
-                        if (found_path) {
-                            // // Mark the bit, exclude this input in output ctrl bit finding
-                            // std::set<CellPin> adjusted_fsm_inputs = non_dominated_sources;
-                            // adjusted_fsm_inputs.erase(connected_input_bit);
-
-                            std::set<CellPin> fsm_state_bits;
-                            for (int i = 0; i < GetSize(dff->getPort("\\Q")); ++i) {
-                                fsm_state_bits.insert({dff, "\\Q", i});
-                            }
-
-                            // Find the output bits using Moore machine approximation
-                            std::set<CellPin> fsm_outputs = circuit_graph.get_dominated_frontier(
-                                fsm_state_bits,
-                                // adjusted_fsm_inputs,
-                                {}
-                            );
-
-                            // log("Guess cell %s port %s index %d as input connection\n",
-                            //     log_id(std::get<0>(connected_input_bit)),
-                            //     log_id(std::get<1>(connected_input_bit)),
-                            //     std::get<2>(connected_input_bit));
-                            // for (const auto& [out_cell, out_pin_name, out_pin_idx]: fsm_outputs) {
-                            //     log("Cell %s Pin %s:%d\n", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-                            // }
-                            // log("Guess ends\n\n");
-
-                            // See if any eligible output pins complete the path
-                            std::set<CellPin> primary_outputs;
-                            std::set<RTLIL::Cell*> all_outputs_half_path_set;
-                            for (CellPin fsm_output: fsm_outputs) {
-                                const auto& [out_cell, out_pin_name, out_pin_idx] = fsm_output;
-                                log("Cell %s Pin %s:%d ", out_cell->name.c_str(), out_pin_name.c_str(), out_pin_idx);
-                                
-                                FfData inter_dff_data(&ff_init_vals, inter_dff);
-                                IdString dff_ctrl_port = inter_dff_data.has_ce? "\\EN": "\\D";
-                                std::set<RTLIL::Cell*> half_path_set;
-                                for (int i = 0; i < GetSize(inter_dff->getPort(dff_ctrl_port)); ++i) {
-                                    std::set<RTLIL::Cell*> i_half_path_set = circuit_graph.get_intermediate_comb_cells(
-                                        fsm_output, {inter_dff, dff_ctrl_port, i});
-                                    half_path_set.insert(i_half_path_set.begin(), i_half_path_set.end());
-                                }
-
-                                if (!half_path_set.empty()) {
-                                    all_outputs_half_path_set.insert(half_path_set.begin(), half_path_set.end());
-                                    // Check if the output pin drives some other output pins
-                                    // that also belongs to the path
-                                    //
-                                    // TODO: May strengthen this check if we first rewrite the FSM s.t.
-                                    // the outputs are a function of state variable then everything else
-                                    bool primary_output = true;
-                                    for (Sink output_sink: circuit_graph.sink_map.at(out_cell).at(out_pin_name).at(out_pin_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(output_sink)) {
-                                            continue;
-                                        }
-
-                                        RTLIL::Cell* succ_cell = std::get<0>(std::get<CellPin>(output_sink));
-                                        bool cell_controls_output = false;
-                                        for (CellPin other_out_pin: fsm_outputs) {
-                                            if (std::get<0>(other_out_pin) == succ_cell) {
-                                                cell_controls_output = true;
-                                                break;
-                                            }
-                                        }
-                                        if (cell_controls_output && half_path_set.count(succ_cell)) {
-                                            primary_output = false;
-                                            break;
-                                        }
-                                    }
-                                    if (primary_output) {
-                                        primary_outputs.insert({out_cell, out_pin_name, out_pin_idx});
-                                        log("PRIMARILY ");
-                                    }
-                                    log("forms a complete path\n");
-                                } else {
-                                    log("does NOT form a complete path\n");
-                                }
-                                auto [input_cell, input_port, input_idx] = connected_input_bit;
-                                log("directed to %s:%s:%d\n", 
-                                    log_id(input_cell), input_port.c_str(), input_idx);
-                            }
-
-                            dff_edge_primary_outputs[{dff, inter_dff}] = std::make_pair(all_outputs_half_path_set, primary_outputs);
-                        }
-                    }
-                }
-            }
-        }
-
-        for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
-            auto [src_dff, sink_dff] = dff_edge;
-            auto [half_path, primary_outputs] = payload;
-
-            log("\n");
-            log("Edge: %s -> %s\n", log_id(src_dff), log_id(sink_dff));
-            log("Primary outputs:\n");
-            for (const CellPin& primary_output: primary_outputs) {
-                auto [cell, port, idx] = primary_output;
-                log("%s:%s:%d\n", log_id(cell), port.c_str(), idx);
-            }
-            log("\n");
         }
 
         std::set<RTLIL::Cell*> data_path_cell;
@@ -620,342 +508,243 @@ struct ValidReadyPass : public Pass {
         // Record if DFFE loop has an associated data register
         std::map<Handshake, std::set<std::pair<RTLIL::Cell*, int>>> eligible_ctrl_bit_pairs;
         std::map<Handshake, std::map<CellPin, std::set<CellPin>>> cut_edges;
-        // Record the corresponding associated data components
-        for (const auto& [dff_edge, payload]: dff_edge_primary_outputs) {
-            const auto& [dff_src, dff_sink] = dff_edge;
-            const auto& [half_path_set, primary_output] = payload;
 
-            // Find the opposite edge
-            std::pair<RTLIL::Cell*, RTLIL::Cell*> opposite_edge = {dff_sink, dff_src};
-            std::set<RTLIL::Cell*> opposite_half_path_set;
-            std::set<CellPin> opposite_primary_output;
-            if (dff_edge_primary_outputs.count(opposite_edge)) {
-                opposite_half_path_set = dff_edge_primary_outputs.at(opposite_edge).first;
-                opposite_primary_output = dff_edge_primary_outputs.at(opposite_edge).second;
-            } else {
-                // The current DFFE cannot complete a loop with eligible ctrl bits
-                continue;
-            }
+        while (!handshake_compute_buffer.empty()) {
+            for (const ConnectedModules& potential_handshake: handshake_compute_buffer) {
+                auto [source_fsm_ffs, sink_fsm_ffs] = potential_handshake.decompose();
+                auto [half_path_set, primary_outputs] = circuit_graph.get_primary_outputs(
+                    source_fsm_ffs,
+                    sink_fsm_ffs,
+                    &ff_init_vals
+                );
 
-            // TODO: Reuse code in graph.h
-            auto get_first_divergence = [&] (
-                CellPin primary_out,
-                std::set<RTLIL::Cell*> control_path_cells,
-                std::set<RTLIL::Cell*> data_path_cells,
-                std::set<RTLIL::Cell*> opposite_data_path_cells
-            ) -> std::pair<CellPin, int> {
-                std::set<RTLIL::Cell*> common_cells;
-                std::set<RTLIL::Cell*> divergent_cells;
-                for (RTLIL::Cell* data_path_cell: data_path_cells) {
-                    if (control_path_cells.count(data_path_cell)) {
-                        common_cells.insert(data_path_cell);
-                    } else {
-                        divergent_cells.insert(data_path_cell);
-                    }
+                auto [opposite_half_path_set, opposite_primary_outputs] = circuit_graph.get_primary_outputs(
+                    sink_fsm_ffs,
+                    source_fsm_ffs,
+                    &ff_init_vals
+                );
+
+                // Discard this potential handshake if any set of primary outputs turn out to be empty
+                if (primary_outputs.empty() || opposite_primary_outputs.empty()) {
+                    continue;
                 }
 
-                CellPin first_divergence;
-                bool found_divergence = false;
-                std::vector<CellPin> work_list;
-                work_list.push_back(primary_out);
-
-                for (RTLIL::Cell* common_cell: common_cells) {
-                    LOG("Common cell: %s\n", log_id(common_cell));
-                }
-
-                // Keep track of the divergence depth
-                // Eventually we need the depth to optimize triangulation guess
-                int depth = -1;
-
-                while (!work_list.empty() && !found_divergence) {
-                    depth += 1;
-
-                    auto [curr_cell, curr_port, curr_pin_idx] = work_list.back();
-                    work_list.pop_back();
-
-                    LOG("Trace from cell %s:%s:%d\n", log_id(curr_cell), curr_port.c_str(), curr_pin_idx);
-
-                    // If the logic path starts to branch, stop trasversing.
-                    bool found_suitable_successor = false;
-                    vector<Sink> curr_sinks = circuit_graph.sink_map.at(curr_cell).at(curr_port)[curr_pin_idx];
-                    for (Sink curr_sink: curr_sinks) {
-                        if (std::holds_alternative<RTLIL::SigBit>(curr_sink)) {
-                            continue;
-                        }
-
-                        auto [sink_cell, sink_port, sink_port_idx] = std::get<CellPin>(curr_sink);
-
-                        // The first condition is the first divergence condition. Self explanatory.
-                        // The second condition is to force selection before merging with opposite cells.
-                        if (divergent_cells.count(sink_cell) || opposite_data_path_cells.count(sink_cell)) {
-                            found_divergence = true;
-                            first_divergence = {curr_cell, curr_port, curr_pin_idx};
-                            break;
-                        }
-
-                        // If the sink is a sequential element WHILE not being the data component target, do not propagate there
-                        if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
-                            continue;
-                        }
-
-                        if (common_cells.count(sink_cell)) {
-                            if (found_suitable_successor) {
-                                // Stop searching divergence. The current pin is our best bet.
-                                found_divergence = true;
-                                first_divergence = {curr_cell, curr_port, curr_pin_idx};
-                                break;
-                            }
-                            found_suitable_successor = true;
-                            for (const auto& [port_name, port_sig]: sink_cell->connections()) {
-                                if (sink_cell->output(port_name)) {
-                                    for (int i = 0; i < GetSize(port_sig); ++i) {
-                                        work_list.push_back({sink_cell, port_name, i});
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!found_divergence) {
-                    log_error("Divergnece cannot be located despite detected\n");
-                    return make_pair(primary_out, depth);
-                }
-
-                return make_pair(first_divergence, depth);
-            };
-
-            for (const CellPin& ctrl_bit: primary_output) {
                 log("\n\n");
-                log("Exanime %s <-> %s\n", log_id(dff_src), log_id(dff_sink));
+                log("Examime from FFs:\n");
+                for (RTLIL::Cell* src_ff: source_fsm_ffs) {
+                    log("%s\n", log_id(src_ff));
+                }
+                log("To FFs:\n");
+                for (RTLIL::Cell* sink_ff: sink_fsm_ffs) {
+                    log("%s\n", log_id(sink_ff));
+                }
+                for (const CellPin& ctrl_bit: primary_outputs) {
+                    log("Primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
+                }
+                for (const CellPin& ctrl_bit: opposite_primary_outputs) {
+                    log("Primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
+                }
 
-                for (const CellPin& other_ctrl_bit: opposite_primary_output) {
-                    // Keep track of the proposed control bits paring and their depth
-                    // Only confirm the ones with least depth
-                    //
-                    // FIXME: Depth comarison is multidimensional since both directions have a depth
-                    int joint_depth = std::numeric_limits<int>::max();
-                    CellPin src_first_divergence_opt;
-                    CellPin sink_first_divergence_opt;
-                    std::map<CellPin, std::set<CellPin>> edges_to_be_cut_opt;
+                for (const CellPin& ctrl_bit: primary_outputs) {
+                    for (const CellPin& other_ctrl_bit: opposite_primary_outputs) {
+                        // Keep track of the proposed control bits paring and their depth
+                        // Only confirm the ones with least depth
+                        //
+                        // FIXME: Depth comarison is multidimensional since both directions have a depth
+                        int joint_depth = std::numeric_limits<int>::max();
+                        CellPin src_first_divergence_opt;
+                        CellPin sink_first_divergence_opt;
+                        std::map<CellPin, std::set<CellPin>> edges_to_be_cut_opt;
 
-                    std::set<std::pair<RTLIL::Cell*, int>> dependent_data_components;
+                        std::set<std::pair<RTLIL::Cell*, int>> dependent_data_components;
 
-                    for (RTLIL::Cell* data_reg: data_path_cell) {
-                        CellPin data_path_ctrl_pin;
-                        int priority;
-                        if (RTLIL::builtin_ff_cell_types().count(data_reg->type)) {
-                            data_path_ctrl_pin = {data_reg, "\\EN", 0};
-                            if (independent_self_loop_dffs.count(data_reg)) {
-                                priority = 1;
+                        for (RTLIL::Cell* data_reg: data_path_cell) {
+                            CellPin data_path_ctrl_pin;
+                            int priority;
+                            if (RTLIL::builtin_ff_cell_types().count(data_reg->type)) {
+                                data_path_ctrl_pin = {data_reg, "\\EN", 0};
+                                if (independent_self_loop_dffs.count(data_reg)) {
+                                    priority = 1;
+                                } else {
+                                    priority = 3;
+                                }
                             } else {
-                                priority = 3;
+                                data_path_ctrl_pin = {data_reg, "\\S", 0};
+                                priority = 2;
                             }
-                        } else {
-                            data_path_ctrl_pin = {data_reg, "\\S", 0};
-                            priority = 2;
-                        }
 
-                        // Control bits may be sourced to a datapath control pin combinatorially
-                        std::set<RTLIL::Cell*> ctrl_bit_to_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            ctrl_bit, data_path_ctrl_pin);
+                            // Control bits may be sourced to a datapath control pin combinatorially
+                            std::set<RTLIL::Cell*> ctrl_bit_to_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                                ctrl_bit, data_path_ctrl_pin);
 
-                        std::set<RTLIL::Cell*> opposite_ctrl_bit_to_data_path = circuit_graph.get_intermediate_comb_cells(
-                            other_ctrl_bit, data_path_ctrl_pin);
-                        
-                        if ((!ctrl_bit_to_data_path_set.empty()) && (!opposite_ctrl_bit_to_data_path.empty())) {
-                            LOG("From direction\n");
-                            auto [src_first_divergence, src_depth] = get_first_divergence(
-                                ctrl_bit, half_path_set,
-                                ctrl_bit_to_data_path_set, opposite_ctrl_bit_to_data_path);
-
-                            LOG("To direction\n");
-                            auto [sink_first_divergence, sink_depth] = get_first_divergence(
-                                other_ctrl_bit, opposite_half_path_set,
-                                opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
-
-                            log("Cell %s Port %s reaches Cell %s CE\n",
-                                std::get<0>(ctrl_bit)->name.c_str(),
-                                std::get<1>(ctrl_bit).c_str(),
-                                log_id(data_reg));
-                            log("Other ctrl pin: Cell %s; Port %s\n",
-                                std::get<0>(other_ctrl_bit)->name.c_str(),
-                                std::get<1>(other_ctrl_bit).c_str()
-                            );
-
-                            // Record data element regardless of priority
-                            // Give direct DFFE priority 3
-                            // Direct MUX priority 2
-                            // Self looping DFFE priority 1
-                            dependent_data_components.insert({data_reg, priority});
-
-                            // Insert the new eligible pair if the divergence depth is shallower
-                            if (src_depth + sink_depth < joint_depth) {
-                                joint_depth = src_depth + sink_depth;
-                                src_first_divergence_opt = src_first_divergence;
-                                sink_first_divergence_opt = sink_first_divergence;
-                                edges_to_be_cut_opt.clear();
-                                edges_to_be_cut_opt[src_first_divergence] = {};
-                                edges_to_be_cut_opt[sink_first_divergence] = {};
-
-                                {
-                                    const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
-                                    for (const Sink& first_div_sink: circuit_graph.sink_map
-                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                            continue;
-                                        }
-                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                        // Add the sink to the edges to be cut set if
-                                        // the sink is part of the half path set
-                                        if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                        }
-                                    }
-                                }
-
-                                {
-                                    const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
-                                    for (const Sink& first_div_sink: circuit_graph.sink_map
-                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                            continue;
-                                        }
-                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                        // Add the sink to the edges to be cut set if
-                                        // the sink is part of the opposite half path set
-                                        if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (joint_depth != std::numeric_limits<int>::max()) {
-                        // std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
-                        //     {dff_src, src_first_divergence_opt},
-                        //     {dff_sink, sink_first_divergence_opt}};
-                        Handshake eligible_pair(
-                            src_first_divergence_opt,
-                            {dff_src},
-                            sink_first_divergence_opt,
-                            {dff_sink}
-                        );
-                        eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
-                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
-
-                        // FIXME: continue the loop
-                        // Should we prioritize direct ctrl pin connections?
-                    }
-
-                    // Control bits may also be sourced to any FSM control pin,
-                    // then to datapath control pin
-                    //
-                    // This will introduce 1 clock cycle delay
-                    for (RTLIL::Cell* inter_dff: self_loop_dff) {
-                        // The intermediate DFF should not be either the sink or the source DFFs
-                        if (inter_dff == dff_src || inter_dff == dff_sink) {
-                            continue;
-                        }
-
-                        std::set<RTLIL::Cell*> ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            ctrl_bit, {inter_dff, "\\EN", 0});
-                        std::set<RTLIL::Cell*> opposite_ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            other_ctrl_bit, {inter_dff, "\\EN", 0});
-                        
-                        if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
-                            log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
-                                std::get<0>(ctrl_bit)->name.c_str(),
-                                std::get<1>(ctrl_bit).c_str(),
-                                log_id(inter_dff));
-                            log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
-                                std::get<0>(other_ctrl_bit)->name.c_str(),
-                                std::get<1>(other_ctrl_bit).c_str(),
-                                log_id(inter_dff));
-
-                            // Triangulate the exact location for both directions
-                            LOG("From direction\n");
-                            auto [src_first_divergence, src_depth] = get_first_divergence(
-                                ctrl_bit, half_path_set,
-                                ctrl_data_path_set, opposite_ctrl_data_path_set);
-
-                            LOG("To direction\n");
-                            auto [sink_first_divergence, sink_depth] = get_first_divergence(
-                                other_ctrl_bit, opposite_half_path_set,
-                                opposite_ctrl_data_path_set, ctrl_data_path_set);
+                            std::set<RTLIL::Cell*> opposite_ctrl_bit_to_data_path = circuit_graph.get_intermediate_comb_cells(
+                                other_ctrl_bit, data_path_ctrl_pin);
                             
-                            // FIXME: Uncomment to optimize computation
-                            // We comment it out to acquire the complete set of data registers
-                            // // If the shallowness will not improve, don't both finding a sinkable MUX
-                            // if (src_depth + sink_depth >= joint_depth) {
-                            //     continue;
-                            // }
+                            if ((!ctrl_bit_to_data_path_set.empty()) && (!opposite_ctrl_bit_to_data_path.empty())) {
+                                auto [src_first_divergence, src_depth] = circuit_graph.get_first_divergence(
+                                    ctrl_bit, half_path_set,
+                                    ctrl_bit_to_data_path_set, opposite_ctrl_bit_to_data_path);
 
-                            // Get all data output pins, try to reach some MUX selects
-                            FfData ff_data(&ff_init_vals, inter_dff);
-                            for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
-                                CellPin src = {inter_dff, "\\Q", i};
+                                auto [sink_first_divergence, sink_depth] = circuit_graph.get_first_divergence(
+                                    other_ctrl_bit, opposite_half_path_set,
+                                    opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
 
-                                for (RTLIL::Cell* mux: sinked_muxes) {
-                                    if (!circuit_graph.get_intermediate_comb_cells(
-                                        src, {mux, "\\S", 0}
-                                    ).empty()) {
-                                        // log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
-                                        //     std::get<0>(ctrl_bit)->name.c_str(),
-                                        //     std::get<1>(ctrl_bit).c_str(),
-                                        //     log_id(inter_dffe));
-                                        // log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
-                                        //     std::get<0>(other_ctrl_bit)->name.c_str(),
-                                        //     std::get<1>(other_ctrl_bit).c_str(),
-                                        //     log_id(inter_dff));
-                                        log("DFFE reaches MUX %s\n", log_id(mux));
-                                        dependent_data_components.insert({mux, 0});
+                                log("Cell %s Port %s reaches Cell %s CE\n",
+                                    std::get<0>(ctrl_bit)->name.c_str(),
+                                    std::get<1>(ctrl_bit).c_str(),
+                                    log_id(data_reg));
+                                log("Other ctrl pin: Cell %s; Port %s\n",
+                                    std::get<0>(other_ctrl_bit)->name.c_str(),
+                                    std::get<1>(other_ctrl_bit).c_str()
+                                );
 
-                                        if (src_depth + sink_depth >= joint_depth) {
-                                            continue;
-                                        }
-                                        joint_depth = src_depth + sink_depth;
-                                        src_first_divergence_opt = src_first_divergence;
-                                        sink_first_divergence_opt = sink_first_divergence;
+                                // Record data element regardless of priority
+                                // Give direct DFFE priority 3
+                                // Direct MUX priority 2
+                                // Self looping DFFE priority 1
+                                dependent_data_components.insert({data_reg, priority});
 
-                                        // FIXME: Omitting the break for logging
-                                        // // The distance from ctrl register to data component doesn't impact the hueristic
-                                        // break;
+                                // Insert the new eligible pair if the divergence depth is shallower
+                                if (src_depth + sink_depth < joint_depth) {
+                                    joint_depth = src_depth + sink_depth;
+                                    src_first_divergence_opt = src_first_divergence;
+                                    sink_first_divergence_opt = sink_first_divergence;
+                                    edges_to_be_cut_opt.clear();
+                                    edges_to_be_cut_opt[src_first_divergence] = {};
+                                    edges_to_be_cut_opt[sink_first_divergence] = {};
 
-                                        edges_to_be_cut_opt.clear();
-                                        edges_to_be_cut_opt[src_first_divergence] = {};
-                                        edges_to_be_cut_opt[sink_first_divergence] = {};
-
-                                        {
-                                            const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
-                                            for (const Sink& first_div_sink: circuit_graph.sink_map
-                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                                    continue;
-                                                }
-                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                                // Add the sink to the edges to be cut set if
-                                                // the sink is part of the half path set
-                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                                }
+                                    {
+                                        const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
+                                        for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                            if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                continue;
+                                            }
+                                            CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                            // Add the sink to the edges to be cut set if
+                                            // the sink is part of the half path set
+                                            if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
                                             }
                                         }
+                                    }
 
-                                        {
-                                            const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
-                                            for (const Sink& first_div_sink: circuit_graph.sink_map
-                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                                    continue;
+                                    {
+                                        const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
+                                        for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                            if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                continue;
+                                            }
+                                            CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                            // Add the sink to the edges to be cut set if
+                                            // the sink is part of the opposite half path set
+                                            if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Control bits may also be sourced to any FSM control pin,
+                        // then to datapath control pin
+                        //
+                        // This will introduce 1 clock cycle delay
+                        for (RTLIL::Cell* inter_dff: self_loop_dff) {
+                            // The intermediate DFF should not be either the sink or the source DFFs
+                            if (source_fsm_ffs.count(inter_dff) || sink_fsm_ffs.count(inter_dff)) {
+                                continue;
+                            }
+
+                            std::set<RTLIL::Cell*> ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                                ctrl_bit, {inter_dff, "\\EN", 0});
+                            std::set<RTLIL::Cell*> opposite_ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
+                                other_ctrl_bit, {inter_dff, "\\EN", 0});
+                            
+                            if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
+                                log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                    std::get<0>(ctrl_bit)->name.c_str(),
+                                    std::get<1>(ctrl_bit).c_str(),
+                                    log_id(inter_dff));
+                                log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                    std::get<0>(other_ctrl_bit)->name.c_str(),
+                                    std::get<1>(other_ctrl_bit).c_str(),
+                                    log_id(inter_dff));
+
+                                // Triangulate the exact location for both directions
+                                auto [src_first_divergence, src_depth] = circuit_graph.get_first_divergence(
+                                    ctrl_bit, half_path_set,
+                                    ctrl_data_path_set, opposite_ctrl_data_path_set);
+
+                                auto [sink_first_divergence, sink_depth] = circuit_graph.get_first_divergence(
+                                    other_ctrl_bit, opposite_half_path_set,
+                                    opposite_ctrl_data_path_set, ctrl_data_path_set);
+                                
+                                // FIXME: Uncomment to optimize computation
+                                // We comment it out to acquire the complete set of data registers
+                                // // If the shallowness will not improve, don't both finding a sinkable MUX
+                                // if (src_depth + sink_depth >= joint_depth) {
+                                //     continue;
+                                // }
+
+                                // Get all data output pins, try to reach some MUX selects
+                                FfData ff_data(&ff_init_vals, inter_dff);
+                                for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
+                                    CellPin src = {inter_dff, "\\Q", i};
+
+                                    for (RTLIL::Cell* mux: sinked_muxes) {
+                                        if (!circuit_graph.get_intermediate_comb_cells(
+                                            src, {mux, "\\S", 0}
+                                        ).empty()) {
+                                            log("DFFE reaches MUX %s\n", log_id(mux));
+                                            dependent_data_components.insert({mux, 0});
+
+                                            if (src_depth + sink_depth >= joint_depth) {
+                                                continue;
+                                            }
+                                            joint_depth = src_depth + sink_depth;
+                                            src_first_divergence_opt = src_first_divergence;
+                                            sink_first_divergence_opt = sink_first_divergence;
+
+                                            // FIXME: Omitting the break for logging
+                                            // // The distance from ctrl register to data component doesn't impact the hueristic
+                                            // break;
+
+                                            edges_to_be_cut_opt.clear();
+                                            edges_to_be_cut_opt[src_first_divergence] = {};
+                                            edges_to_be_cut_opt[sink_first_divergence] = {};
+
+                                            {
+                                                const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
+                                                for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                        .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                                    if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                        continue;
+                                                    }
+                                                    CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                                    // Add the sink to the edges to be cut set if
+                                                    // the sink is part of the half path set
+                                                    if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                        edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                    }
                                                 }
-                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                                // Add the sink to the edges to be cut set if
-                                                // the sink is part of the half path set
-                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                            }
+
+                                            {
+                                                const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
+                                                for (const Sink& first_div_sink: circuit_graph.sink_map
+                                                        .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
+                                                    if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
+                                                        continue;
+                                                    }
+                                                    CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
+                                                    // Add the sink to the edges to be cut set if
+                                                    // the sink is part of the half path set
+                                                    if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                        edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                    }
                                                 }
                                             }
                                         }
@@ -963,104 +752,225 @@ struct ValidReadyPass : public Pass {
                                 }
                             }
                         }
-                    }
-                    if (joint_depth != std::numeric_limits<int>::max()) {
-                        // std::set<std::pair<RTLIL::Cell*, CellPin>> eligible_pair = {
-                        //     {dff_src, src_first_divergence_opt},
-                        //     {dff_sink, sink_first_divergence_opt}};
-                        Handshake eligible_pair(
-                            src_first_divergence_opt,
-                            {dff_src},
-                            sink_first_divergence_opt,
-                            {dff_sink}
-                        );
-                        eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
-                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
+                        if (joint_depth != std::numeric_limits<int>::max()) {
+                            Handshake eligible_pair(
+                                src_first_divergence_opt,
+                                source_fsm_ffs,
+                                sink_first_divergence_opt,
+                                sink_fsm_ffs
+                            );
+                            eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
+                            cut_edges[eligible_pair] = edges_to_be_cut_opt;
+                        }
+
+                        // DEBUG
+                        if (joint_depth != std::numeric_limits<int>::max()) {
+                            log("A handshake candidate is found, handshake buffer size: %ld\n\n\n", eligible_ctrl_bit_pairs.size());
+                        }
                     }
                 }
             }
-        }
+            // Clear compute buffer, as the computation is completed.
+            handshake_compute_buffer.clear();
 
-        // Check if the ready bits and valid bits are functionally separable
-        for (const auto& [eligible_pair, _data_components]: eligible_ctrl_bit_pairs) {
-            // auto eligible_it = eligible_pair.begin();
-            // auto [dffe_src, eligible_src] = *eligible_it;
+            log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
+            for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
+                auto [handshake_src, handshake_sink] = eligible_pair.decompose();
+                auto [eligible_src, dffe_srcs] = handshake_src;
+                auto [eligible_sink, dffe_sinks] = handshake_sink;
 
-            // std::advance(eligible_it, 1);
-            // auto [dffe_sink, eligible_sink] = *eligible_it;
-
-            auto [handshake_src, handshake_sink] = eligible_pair.decompose_single();
-            auto [eligible_src, dffe_src] = handshake_src;
-            auto [eligible_sink, dffe_sink] = handshake_sink;
-
-            std::set<RTLIL::Cell*> src_path;
-            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
-                std::set<RTLIL::Cell*> src_i_path = circuit_graph.get_intermediate_comb_cells(
-                    {dffe_src, "\\Q", i}, eligible_src);
-                src_path.insert(src_i_path.begin(), src_i_path.end());
+                log("Ctrl src: Cell %s Port %s\n",
+                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str()
+                );
+                log("Src FFs:\n");
+                for (RTLIL::Cell* dffe_src: dffe_srcs) {
+                    log("%s\n", log_id(dffe_src));
+                }
+                log("Ctrl sink: Cell %s Port %s\n",
+                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str()
+                );
+                log("Sink FFs:\n");
+                for (RTLIL::Cell* dffe_sink: dffe_sinks) {
+                    log("%s\n", log_id(dffe_sink));
+                }
+                log("\n");
             }
 
-            std::set<RTLIL::Cell*> sink_path;
-            for (int i = 0; i < GetSize(dffe_sink->getPort("\\Q")); ++i) {
-                std::set<RTLIL::Cell*> sink_i_path = circuit_graph.get_intermediate_comb_cells(
-                    {dffe_sink, "\\Q", i}, eligible_sink);
-                sink_path.insert(sink_i_path.begin(), sink_i_path.end());
-            }
+            // Check if the ready bits and valid bits are functionally separable
+            std::set<Handshake> cross_influenced_handshake;
+            for (const auto& [eligible_pair, _data_components]: eligible_ctrl_bit_pairs) {
+                auto [handshake_src, handshake_sink] = eligible_pair.decompose();
+                auto [eligible_src, dffe_srcs] = handshake_src;
+                auto [eligible_sink, dffe_sinks] = handshake_sink;
 
-            log("Found eligible pair %s <-> %s\n", log_id(dffe_src), log_id(dffe_sink));
+                std::set<RTLIL::Cell*> src_path;
+                for (RTLIL::Cell* single_dffe_src: dffe_srcs) {
+                    for (int i = 0; i < GetSize(single_dffe_src->getPort("\\Q")); ++i) {
+                        std::set<RTLIL::Cell*> src_i_path = circuit_graph.get_intermediate_comb_cells(
+                            {single_dffe_src, "\\Q", i}, eligible_src);
+                        src_path.insert(src_i_path.begin(), src_i_path.end());
+                    }
+                }
 
-            LOG("Examine Cell %s Port %s <-> Cell %s Port %s\n\n",
-                std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
-                std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
-            
-            LOG("Src Path:\n");
-            for (RTLIL::Cell* src_cell: src_path) {
-                LOG("%s\n", log_id(src_cell));
-            }
+                std::set<RTLIL::Cell*> sink_path;
+                for (RTLIL::Cell* single_dffe_sink: dffe_sinks) {
+                    for (int i = 0; i < GetSize(single_dffe_sink->getPort("\\Q")); ++i) {
+                        std::set<RTLIL::Cell*> sink_i_path = circuit_graph.get_intermediate_comb_cells(
+                            {single_dffe_sink, "\\Q", i}, eligible_sink);
+                        sink_path.insert(sink_i_path.begin(), sink_i_path.end());
+                    }
+                }
 
-            LOG("Sink Path:\n");
-            for (RTLIL::Cell* sink_cell: sink_path) {
-                LOG("%s\n", log_id(sink_cell));
-            }
+                LOG("Examine Cell %s Port %s <-> Cell %s Port %s\n\n",
+                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+                
+                LOG("Src Path:\n");
+                for (RTLIL::Cell* src_cell: src_path) {
+                    LOG("%s\n", log_id(src_cell));
+                }
 
-            LOG("\n\n");
+                LOG("Sink Path:\n");
+                for (RTLIL::Cell* sink_cell: sink_path) {
+                    LOG("%s\n", log_id(sink_cell));
+                }
 
-            bool has_common_gate = false;
-            for (RTLIL::Cell* src_gate: src_path) {
-                if (sink_path.count(src_gate)) {
-                    has_common_gate = true;
-                    break;
+                LOG("\n\n");
+
+                bool has_common_gate = false;
+                for (RTLIL::Cell* src_gate: src_path) {
+                    if (sink_path.count(src_gate)) {
+                        has_common_gate = true;
+                        break;
+                    }
+                }
+
+                if (has_common_gate) {
+                    cross_influenced_handshake.insert(eligible_pair);
+                    log("Found intertwined path between Cell %s Port %s and Cell %s Port %s\n",
+                        std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                        std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+                }
+
+                // Ensure there are not mutual interference
+                std::set<RTLIL::Cell*> dffe_src_sink_path;
+                for (RTLIL::Cell* single_dffe_src: dffe_srcs) {
+                    for (int i = 0; i < GetSize(single_dffe_src->getPort("\\Q")); ++i) {
+                        std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
+                            {single_dffe_src, "\\Q", i}, eligible_sink);
+                        dffe_src_sink_path.insert(path_i.begin(), path_i.end());
+                    }
+                }
+
+                std::set<RTLIL::Cell*> dffe_sink_src_path;
+                for (RTLIL::Cell* single_dffe_sink: dffe_sinks) {
+                    for (int i = 0; i < GetSize(single_dffe_sink->getPort("\\Q")); ++i) {
+                        std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
+                            {single_dffe_sink, "\\Q", i}, eligible_src);
+                        dffe_sink_src_path.insert(path_i.begin(), path_i.end());
+                    }
+                }
+
+                if (!dffe_src_sink_path.empty() || !dffe_sink_src_path.empty()) {
+                    log("Cell %s:%s and Cell %s:%s are combinatorially influenced by opposite DFFE\n",
+                        std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
+                        std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+                    cross_influenced_handshake.insert(eligible_pair);
                 }
             }
 
-            if (has_common_gate) {
-                log("Found intertwined path between Cell %s Port %s and Cell %s Port %s\n",
-                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
-                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+            // Commit with removal
+            for (const Handshake& removing_x_influence: cross_influenced_handshake) {
+                eligible_ctrl_bit_pairs.erase(removing_x_influence);
             }
 
-            // Ensure there are not mutual interference
-            std::set<RTLIL::Cell*> dffe_src_sink_path;
-            for (int i = 0; i < GetSize(dffe_src->getPort("\\Q")); ++i) {
-                std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
-                    {dffe_src, "\\Q", i}, eligible_sink);
-                dffe_src_sink_path.insert(path_i.begin(), path_i.end());
+            // Re-classify potential handshake pairs
+            // 1. No FSMs should have multiple valid/ready candidates
+            // In this case, classify both infracting FFs as within the same module
+            std::set<std::set<RTLIL::Cell*>> same_module_ffs_list;
+            // Prune these from the previously found handshakes
+            std::set<Handshake> intra_module_handshakes;
+            {
+                // A cache for handshakes that had been encountered, mapped by its driving DFFs
+                // It is just to make handshake removal a bit simpler
+                std::map<std::set<RTLIL::Cell*>, Handshake> observed_ff_linkages;
+                for (const auto& [handshake, _data_components]: eligible_ctrl_bit_pairs) {
+                    auto [handshake_src, handshake_sink] = handshake.decompose();
+                    auto [eligible_src, dffe_src] = handshake_src;
+                    auto [eligible_sink, dffe_sink] = handshake_sink;
+
+                    std::set<RTLIL::Cell*> curr_ffs;
+                    curr_ffs.insert(dffe_src.begin(), dffe_src.end());
+                    curr_ffs.insert(dffe_sink.begin(), dffe_sink.end());
+
+                    if (observed_ff_linkages.count(curr_ffs)) {
+                        same_module_ffs_list.insert(curr_ffs);
+                        intra_module_handshakes.insert(handshake);
+                        // Insert the handshake that had been cached as well
+                        intra_module_handshakes.insert(observed_ff_linkages.at(curr_ffs));
+                    } else {
+                        observed_ff_linkages.insert({curr_ffs, handshake});
+                    }
+                }
             }
 
-            std::set<RTLIL::Cell*> dffe_sink_src_path;
-            for (int i = 0; i < GetSize(dffe_sink->getPort("\\Q")); ++i) {
-                std::set<RTLIL::Cell*> path_i = circuit_graph.get_intermediate_comb_cells(
-                    {dffe_sink, "\\Q", i}, eligible_src);
-                dffe_sink_src_path.insert(path_i.begin(), path_i.end());
+            for (const Handshake& vr_handshake: intra_module_handshakes) {
+                eligible_ctrl_bit_pairs.erase(vr_handshake);
             }
+            log("Handshake counts after same module removal: %ld\n", eligible_ctrl_bit_pairs.size());
 
-            if (!dffe_src_sink_path.empty() || !dffe_sink_src_path.empty()) {
-                log("Cell %s:%s and Cell %s:%s are combinatorially influenced by opposite DFFE\n",
-                    std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(),
-                    std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str());
+            // FIXME: Coalesce the FF sets, so any entries that share common cells would be joined
+
+            // 2. Classify handshakes that has the same module source as the same handshake
+            // We do so by joining the handshake ff sources of the handshake entries
+            std::set<Handshake> original_handshake_removal;
+            {
+                for (std::set<RTLIL::Cell*> same_module_ffs: same_module_ffs_list) {
+                    std::map<std::set<RTLIL::Cell*>, std::set<Handshake>> other_ctrl_map;
+                    for (const auto& [handshake, _data_components]: eligible_ctrl_bit_pairs) {
+                        // If the backing DFFs are a subset of the FFs in the same module,
+                        // consider FF expansion
+                        std::set<RTLIL::Cell*> opposite_if = handshake.get_opposite_backing_if_backed(same_module_ffs);
+                        if (!opposite_if.empty()) {
+                            if (other_ctrl_map.count(opposite_if) == 0) {
+                                other_ctrl_map[opposite_if] = {};
+                            }
+                            other_ctrl_map[opposite_if].insert(handshake);
+                        }
+                    }
+
+                    // Examine the map of opposite controls
+                    // If any key has more than 1 handshakes,
+                    // update the ff backings with all FFs that backed the handshakes
+                    for (const auto& [opposite_if, handshake_copies]: other_ctrl_map) {
+                        if (handshake_copies.size() > 1) {
+                            // Compute union
+                            std::set<RTLIL::Cell*> backing_union;
+                            for (const Handshake& handshake: handshake_copies) {
+                                // Opposite of opposite is unity
+                                std::set<RTLIL::Cell*> backed_ffs = handshake.get_opposite_backing(opposite_if);
+                                backing_union.insert(backed_ffs.begin(), backed_ffs.end());
+                            }
+
+                            // Update backing, and store it in the recompute buffer
+                            for (Handshake original_handshake: handshake_copies) {
+                                Handshake new_handshake = original_handshake;
+                                new_handshake.insert_backing_ff(backing_union);
+                                ConnectedModules uncomputed_handshake(new_handshake);
+
+                                // Store it in the recompute buffer for recomputation
+                                handshake_compute_buffer.insert(uncomputed_handshake);
+                                // The old handshake should be removed
+                                original_handshake_removal.insert(original_handshake);
+                            }
+                        }
+                    }
+                }
             }
-
-            // TODO: Actually remove infracting control bits
+            for (const Handshake& recomputing_handshake: original_handshake_removal) {
+                eligible_ctrl_bit_pairs.erase(recomputing_handshake);
+            }
+            log("Recompute buffer size: %ld\n", handshake_compute_buffer.size());
         }
 
         log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
@@ -1071,376 +981,6 @@ struct ValidReadyPass : public Pass {
 
         std::map<Handshake, std::set<CellPin>> module_interfaces;
         std::map<Handshake, std::set<Wire>> module_data_interfaces;
-        for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
-            // auto eligible_it = eligible_pair.begin();
-            // auto [dffe_src, eligible_src] = *eligible_it;
-
-            // std::advance(eligible_it, 1);
-            // auto [dffe_sink, eligible_sink] = *eligible_it;
-
-            auto [handshake_src, handshake_sink] = eligible_pair.decompose_single();
-            auto [eligible_src, dffe_src] = handshake_src;
-            auto [eligible_sink, dffe_sink] = handshake_sink;
-
-            log("Ctrl src: Cell %s Port %s from %s; sink: Cell %s Port %s from %s\n",
-                std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str(), log_id(dffe_src),
-                std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str(), log_id(dffe_sink));
-            log("\n");
-        }
-
-        // Re-classify potential handshake pairs
-        // 1. No FSMs should have multiple valid/ready candidates
-        // In this case, classify both infracting FFs as within the same module
-        std::set<std::set<RTLIL::Cell*>> same_module_ffs_list;
-        // Prune these from the previously found handshakes
-        std::set<Handshake> intra_module_handshakes;
-        {
-            // A cache for handshakes that had been encountered, mapped by its driving DFFs
-            // It is just to make handshake removal a bit simpler
-            std::map<std::set<RTLIL::Cell*>, Handshake> observed_ff_linkages;
-            for (const auto& [handshake, _data_components]: eligible_ctrl_bit_pairs) {
-                auto [handshake_src, handshake_sink] = handshake.decompose();
-                auto [eligible_src, dffe_src] = handshake_src;
-                auto [eligible_sink, dffe_sink] = handshake_sink;
-
-                std::set<RTLIL::Cell*> curr_ffs;
-                curr_ffs.insert(dffe_src.begin(), dffe_src.end());
-                curr_ffs.insert(dffe_sink.begin(), dffe_sink.end());
-
-                if (observed_ff_linkages.count(curr_ffs)) {
-                    same_module_ffs_list.insert(curr_ffs);
-                    intra_module_handshakes.insert(handshake);
-                    // Insert the handshake that had been cached as well
-                    intra_module_handshakes.insert(observed_ff_linkages.at(curr_ffs));
-                } else {
-                    observed_ff_linkages.insert({curr_ffs, handshake});
-                }
-            }
-        }
-
-        for (const Handshake& vr_handshake: intra_module_handshakes) {
-            eligible_ctrl_bit_pairs.erase(vr_handshake);
-        }
-        log("Handshake counts after same module removal: %ld\n", eligible_ctrl_bit_pairs.size());
-
-        // FIXME: Coalesce the FF sets, so any entries that share common cells would be joined
-
-        // 2. Classify handshakes that has the same module source as the same handshake
-        // We do so by joining the handshake ff sources of the handshake entries
-        std::set<ConnectedModules> handshake_recompute_buffer;
-        std::set<Handshake> original_handshake_removal;
-        {
-            for (std::set<RTLIL::Cell*> same_module_ffs: same_module_ffs_list) {
-                std::map<std::set<RTLIL::Cell*>, std::set<Handshake>> other_ctrl_map;
-                for (const auto& [handshake, _data_components]: eligible_ctrl_bit_pairs) {
-                    // If the backing DFFs are a subset of the FFs in the same module,
-                    // consider FF expansion
-                    std::set<RTLIL::Cell*> opposite_if = handshake.get_opposite_backing_if_backed(same_module_ffs);
-                    if (!opposite_if.empty()) {
-                        if (other_ctrl_map.count(opposite_if) == 0) {
-                            other_ctrl_map[opposite_if] = {};
-                        }
-                        other_ctrl_map[opposite_if].insert(handshake);
-                    }
-                }
-
-                // Examine the map of opposite controls
-                // If any key has more than 1 handshakes,
-                // update the ff backings with all FFs that backed the handshakes
-                for (const auto& [opposite_if, handshake_copies]: other_ctrl_map) {
-                    if (handshake_copies.size() > 1) {
-                        // Compute union
-                        std::set<RTLIL::Cell*> backing_union;
-                        for (const Handshake& handshake: handshake_copies) {
-                            // Opposite of opposite is unity
-                            std::set<RTLIL::Cell*> backed_ffs = handshake.get_opposite_backing(opposite_if);
-                            backing_union.insert(backed_ffs.begin(), backed_ffs.end());
-                        }
-
-                        // Update backing, and store it in the recompute buffer
-                        for (Handshake original_handshake: handshake_copies) {
-                            Handshake new_handshake = original_handshake;
-                            new_handshake.insert_backing_ff(backing_union);
-                            ConnectedModules uncomputed_handshake(new_handshake);
-
-                            // Store it in the recompute buffer for recomputation
-                            handshake_recompute_buffer.insert(uncomputed_handshake);
-                            // The old handshake should be removed
-                            original_handshake_removal.insert(original_handshake);
-                        }
-                    }
-                }
-            }
-        }
-        for (const Handshake& recomputing_handshake: original_handshake_removal) {
-            eligible_ctrl_bit_pairs.erase(recomputing_handshake);
-        }
-        log("Recompute buffer size: %ld\n", handshake_recompute_buffer.size());
-        log("Confirmed handshake pairs: %ld\n", eligible_ctrl_bit_pairs.size());
-
-        // Recompute primary outputs for each handshake interface that needs recomputation
-        std::map<
-            std::pair<std::set<RTLIL::Cell*>, std::set<RTLIL::Cell*>>,
-            std::pair<std::set<RTLIL::Cell*>, std::set<CellPin>>
-        > dff_edge_to_primary_output_map;
-        for (const ConnectedModules& dff_group_pair: handshake_recompute_buffer) {
-            auto [dff_src_group, dff_sink_group] = dff_group_pair.decompose();
-
-            dff_edge_to_primary_output_map.insert({
-                {dff_src_group, dff_sink_group},
-                circuit_graph.get_primary_outputs(dff_src_group, dff_sink_group, &ff_init_vals)
-            });
-            dff_edge_to_primary_output_map.insert({
-                {dff_sink_group, dff_src_group},
-                circuit_graph.get_primary_outputs(dff_sink_group, dff_src_group, &ff_init_vals)
-            });
-
-            {
-                // Logging from 0 to 1
-                log("FF sources: \n");
-                for (RTLIL::Cell* ff_src: dff_src_group) {
-                    log("%s, ", log_id(ff_src));
-                }
-                log("\n");
-                log("FF sinks: \n");
-                for (RTLIL::Cell* ff_sink: dff_sink_group) {
-                    log("%s, ", log_id(ff_sink));
-                }
-                log("\n");
-                auto [_half_path, primary_outputs] = dff_edge_to_primary_output_map.at({dff_src_group, dff_sink_group});
-                log("Primary outputs:\n");
-                for (auto [out_cell, out_port, out_port_idx]: primary_outputs) {
-                    log("%s:%s:%d\n", log_id(out_cell), log_id(out_port), out_port_idx);
-                }
-                log("\n");
-
-                // Logging from 1 to 0. This is the reverse direction
-                auto [_opposite_half_path, opposite_primary_outputs] = dff_edge_to_primary_output_map.at({dff_sink_group, dff_src_group});
-                log("Opposite Primary outputs:\n");
-                for (auto [out_cell, out_port, out_port_idx]: opposite_primary_outputs) {
-                    log("%s:%s:%d\n", log_id(out_cell), log_id(out_port), out_port_idx);
-                }
-                log("\n");
-            }
-
-            // Determine the first divergence and the dependent data components
-            auto [half_path_set, curr_primary_outputs] = dff_edge_to_primary_output_map.at({dff_src_group, dff_sink_group});
-            auto [opposite_half_path_set, opposite_primary_outputs] = dff_edge_to_primary_output_map.at({dff_sink_group, dff_src_group});
-
-            for (const CellPin& ctrl_bit: curr_primary_outputs) {
-                for (const CellPin& other_ctrl_bit: opposite_primary_outputs) {
-                    // Keep track of the proposed control bits paring and their depth
-                    // Only confirm the ones with least depth
-                    //
-                    // FIXME: Depth comarison is multidimensional since both directions have a depth
-                    int joint_depth = std::numeric_limits<int>::max();
-                    CellPin src_first_divergence_opt;
-                    CellPin sink_first_divergence_opt;
-                    std::map<CellPin, std::set<CellPin>> edges_to_be_cut_opt;
-
-                    std::set<std::pair<RTLIL::Cell*, int>> dependent_data_components;
-
-                    for (RTLIL::Cell* data_reg: data_path_cell) {
-                        CellPin data_path_ctrl_pin;
-                        int priority;
-                        if (RTLIL::builtin_ff_cell_types().count(data_reg->type)) {
-                            data_path_ctrl_pin = {data_reg, "\\EN", 0};
-                            if (independent_self_loop_dffs.count(data_reg)) {
-                                priority = 1;
-                            } else {
-                                priority = 3;
-                            }
-                        } else {
-                            data_path_ctrl_pin = {data_reg, "\\S", 0};
-                            priority = 2;
-                        }
-
-                        // Control bits may be sourced to a datapath control pin combinatorially
-                        std::set<RTLIL::Cell*> ctrl_bit_to_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            ctrl_bit, data_path_ctrl_pin);
-
-                        std::set<RTLIL::Cell*> opposite_ctrl_bit_to_data_path = circuit_graph.get_intermediate_comb_cells(
-                            other_ctrl_bit, data_path_ctrl_pin);
-                        
-                        if ((!ctrl_bit_to_data_path_set.empty()) && (!opposite_ctrl_bit_to_data_path.empty())) {
-                            auto [src_first_divergence, src_depth] = circuit_graph.get_first_divergence(
-                                ctrl_bit, half_path_set,
-                                ctrl_bit_to_data_path_set, opposite_ctrl_bit_to_data_path);
-
-                            auto [sink_first_divergence, sink_depth] = circuit_graph.get_first_divergence(
-                                other_ctrl_bit, opposite_half_path_set,
-                                opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
-
-                            // Record data element regardless of priority
-                            // Give direct DFFE priority 3
-                            // Direct MUX priority 2
-                            // Self looping DFFE priority 1
-                            dependent_data_components.insert({data_reg, priority});
-
-                            // Insert the new eligible pair if the divergence depth is shallower
-                            if (src_depth + sink_depth < joint_depth) {
-                                joint_depth = src_depth + sink_depth;
-                                src_first_divergence_opt = src_first_divergence;
-                                sink_first_divergence_opt = sink_first_divergence;
-                                edges_to_be_cut_opt.clear();
-                                edges_to_be_cut_opt[src_first_divergence] = {};
-                                edges_to_be_cut_opt[sink_first_divergence] = {};
-
-                                {
-                                    const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
-                                    for (const Sink& first_div_sink: circuit_graph.sink_map
-                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                            continue;
-                                        }
-                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                        // Add the sink to the edges to be cut set if
-                                        // the sink is part of the half path set
-                                        if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                        }
-                                    }
-                                }
-
-                                {
-                                    const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
-                                    for (const Sink& first_div_sink: circuit_graph.sink_map
-                                            .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                        if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                            continue;
-                                        }
-                                        CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                        // Add the sink to the edges to be cut set if
-                                        // the sink is part of the opposite half path set
-                                        if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                            edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (joint_depth != std::numeric_limits<int>::max()) {
-                        Handshake eligible_pair(
-                            src_first_divergence_opt,
-                            dff_src_group,
-                            sink_first_divergence_opt,
-                            dff_sink_group
-                        );
-                        eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
-                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
-
-                        // Should we prioritize direct ctrl pin connections?
-                    }
-
-                    // Control bits may also be sourced to any FSM control pin,
-                    // then to datapath control pin
-                    //
-                    // This will introduce 1 clock cycle delay
-                    for (RTLIL::Cell* inter_dff: self_loop_dff) {
-                        // The intermediate DFF should not be either the sink or the source DFFs
-                        if (dff_src_group.count(inter_dff) || dff_sink_group.count(inter_dff)) {
-                            continue;
-                        }
-
-                        std::set<RTLIL::Cell*> ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            ctrl_bit, {inter_dff, "\\EN", 0});
-                        std::set<RTLIL::Cell*> opposite_ctrl_data_path_set = circuit_graph.get_intermediate_comb_cells(
-                            other_ctrl_bit, {inter_dff, "\\EN", 0});
-                        
-                        if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
-                            // Triangulate the exact location for both directions
-                            auto [src_first_divergence, src_depth] = circuit_graph.get_first_divergence(
-                                ctrl_bit, half_path_set,
-                                ctrl_data_path_set, opposite_ctrl_data_path_set);
-
-                            auto [sink_first_divergence, sink_depth] = circuit_graph.get_first_divergence(
-                                other_ctrl_bit, opposite_half_path_set,
-                                opposite_ctrl_data_path_set, ctrl_data_path_set);
-                            
-                            // FIXME: Uncomment to optimize computation
-                            // We comment it out to acquire the complete set of data registers
-                            // // If the shallowness will not improve, don't both finding a sinkable MUX
-                            // if (src_depth + sink_depth >= joint_depth) {
-                            //     continue;
-                            // }
-
-                            // Get all data output pins, try to reach some MUX selects
-                            FfData ff_data(&ff_init_vals, inter_dff);
-                            for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
-                                CellPin src = {inter_dff, "\\Q", i};
-
-                                for (RTLIL::Cell* mux: sinked_muxes) {
-                                    if (!circuit_graph.get_intermediate_comb_cells(
-                                        src, {mux, "\\S", 0}
-                                    ).empty()) {
-                                        dependent_data_components.insert({mux, 0});
-
-                                        if (src_depth + sink_depth >= joint_depth) {
-                                            continue;
-                                        }
-                                        joint_depth = src_depth + sink_depth;
-                                        src_first_divergence_opt = src_first_divergence;
-                                        sink_first_divergence_opt = sink_first_divergence;
-
-                                        // FIXME: Omitting the break for logging
-                                        // // The distance from ctrl register to data component doesn't impact the hueristic
-                                        // break;
-
-                                        edges_to_be_cut_opt.clear();
-                                        edges_to_be_cut_opt[src_first_divergence] = {};
-                                        edges_to_be_cut_opt[sink_first_divergence] = {};
-
-                                        {
-                                            const auto& [first_div_cell, first_div_port, first_div_idx] = src_first_divergence;
-                                            for (const Sink& first_div_sink: circuit_graph.sink_map
-                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                                    continue;
-                                                }
-                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                                // Add the sink to the edges to be cut set if
-                                                // the sink is part of the half path set
-                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                                }
-                                            }
-                                        }
-
-                                        {
-                                            const auto& [first_div_cell, first_div_port, first_div_idx] = sink_first_divergence;
-                                            for (const Sink& first_div_sink: circuit_graph.sink_map
-                                                    .at(first_div_cell).at(first_div_port).at(first_div_idx)) {
-                                                if (std::holds_alternative<RTLIL::SigBit>(first_div_sink)) {
-                                                    continue;
-                                                }
-                                                CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
-                                                // Add the sink to the edges to be cut set if
-                                                // the sink is part of the half path set
-                                                if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                    edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (joint_depth != std::numeric_limits<int>::max()) {
-                        Handshake eligible_pair(
-                            src_first_divergence_opt,
-                            dff_src_group,
-                            sink_first_divergence_opt,
-                            dff_sink_group
-                        );
-                        eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
-                        cut_edges[eligible_pair] = edges_to_be_cut_opt;
-                    }
-                }
-            }
-        }
 
         log("New handshake count: %ld\n", eligible_ctrl_bit_pairs.size());
         for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
