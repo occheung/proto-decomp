@@ -186,17 +186,31 @@ struct Handshake {
     }
 
     bool operator <(const Handshake& other) const {
-        auto this_it = this->info.begin();
-        auto other_it = other.info.begin();
-        for (; (this_it != this->info.end()) && (other_it != other.info.end()); ++this_it, ++other_it) {
-            auto [this_pin, _this_dffs] = *this_it;
-            auto [other_pin, _other_dffs] = *other_it;
-            if (this_pin != other_pin) {
-                return this_pin < other_pin;
+        {
+            auto this_it = this->info.begin();
+            auto other_it = other.info.begin();
+            for (; (this_it != this->info.end()) && (other_it != other.info.end()); ++this_it, ++other_it) {
+                auto [this_pin, _this_dffs] = *this_it;
+                auto [other_pin, _other_dffs] = *other_it;
+                if (this_pin != other_pin) {
+                    return this_pin < other_pin;
+                }
             }
         }
 
         // The execution flow reaches here iff the pin set are identical
+        // Compare the backing FF instead
+        {
+            auto this_it = this->info.begin();
+            auto other_it = other.info.begin();
+            for (; (this_it != this->info.end()) && (other_it != other.info.end()); ++this_it, ++other_it) {
+                auto [_this_pin, this_dffs] = *this_it;
+                auto [_other_pin, other_dffs] = *other_it;
+                if (this_dffs != other_dffs) {
+                    return this_dffs < other_dffs;
+                }
+            }
+        }
         return false;
     }
 };
