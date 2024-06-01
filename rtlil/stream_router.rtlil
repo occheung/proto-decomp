@@ -1483,31 +1483,35 @@ module \top
     parameter \SRST_VALUE 3'000
     parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$769.Y [2:1] $auto$alumacc.cc:485:replace_alu$769.X [0] }
-    connect \EN \syncfifo0_wrport_we0
-    connect \Q \syncfifo0_produce0
+    connect \D { $auto$alumacc.cc:485:replace_alu$772.Y [2] $auto$alumacc.cc:485:replace_alu$772.X [0] $auto$alumacc.cc:485:replace_alu$772.Y [1] }
+    connect \EN \syncfifo0_do_read0
+    connect \Q { \syncfifo0_consume0 [2] \syncfifo0_consume0 [0] \syncfifo0_consume0 [1] }
     connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4971
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [0] \sink_payload_data_3 [4:3] \sink_payload_data_3 [1] }
-    connect \EN $memory\storage_3$wren[0][0][0]$y$1244
-    connect \Q { \storage_3[0] [2] \storage_3[0] [7:5] \storage_3[0] [8] \storage_3[0] [0] \storage_3[0] [4:3] \storage_3[0] [1] }
-  end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4972
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4971
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 3'000
     parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$823.Y [2] $auto$alumacc.cc:485:replace_alu$823.X [0] $auto$alumacc.cc:485:replace_alu$823.Y [1] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$823.Y [2:1] $auto$alumacc.cc:485:replace_alu$823.X [0] }
     connect \EN \syncfifo2_wrport_we1
-    connect \Q { \syncfifo2_produce1 [2] \syncfifo2_produce1 [0] \syncfifo2_produce1 [1] }
+    connect \Q \syncfifo2_produce1
+    connect \SRST \sys_rst
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4972
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 4'0000
+    parameter \WIDTH 4
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$784.Y [3:1] $auto$alumacc.cc:485:replace_alu$784.X [0] }
+    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$752
+    connect \Q \syncfifo1_level0
     connect \SRST \sys_rst
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$4973
@@ -1515,144 +1519,21 @@ module \top
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [4] \sink_payload_data_1 [2] \sink_payload_data_1 [7] \sink_eop_1 \sink_payload_data_1 [1] \sink_payload_data_1 [6] \sink_payload_data_1 [3] \sink_payload_data_1 [5] \sink_payload_data_1 [0] }
-    connect \EN $memory\storage_1$wren[6][0][0]$y$1082
-    connect \Q { \storage_1[6] [4] \storage_1[6] [2] \storage_1[6] [7] \storage_1[6] [8] \storage_1[6] [1] \storage_1[6] [6] \storage_1[6] [3] \storage_1[6] [5] \storage_1[6] [0] }
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4974
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$826.Y [2:1] $auto$alumacc.cc:485:replace_alu$826.X [0] }
-    connect \EN \syncfifo2_do_read1
-    connect \Q \syncfifo2_consume1
-    connect \SRST \sys_rst
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4975
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [4:3] }
-    connect \EN $memory\storage_2$wren[2][0][0]$y$1157
-    connect \Q { \storage_2[2] [2] \storage_2[2] [7:5] \storage_2[2] [8] \storage_2[2] [1:0] \storage_2[2] [4:3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4976
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data [2] \sink_payload_data [7:5] \sink_eop \sink_payload_data [1] \sink_payload_data [4:3] \sink_payload_data [0] }
-    connect \EN $memory\storage$wren[6][0][0]$y$977
-    connect \Q { \storage[6] [2] \storage[6] [7:5] \storage[6] [8] \storage[6] [1] \storage[6] [4:3] \storage[6] [0] }
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4977
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 4'0000
-    parameter \WIDTH 4
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$838.Y [3:1] $auto$alumacc.cc:485:replace_alu$838.X [0] }
-    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$676
-    connect \Q \syncfifo3_level1
-    connect \SRST \sys_rst
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4978
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [7:5] \sink_eop_1 \sink_payload_data_1 [1:0] \sink_payload_data_1 [4:3] }
-    connect \EN $memory\storage_1$wren[7][0][0]$y$1088
-    connect \Q { \storage_1[7] [2] \storage_1[7] [7:5] \storage_1[7] [8] \storage_1[7] [1:0] \storage_1[7] [4:3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4979
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_payload_data [7] \demux_endpoint2_source_payload_data [3:2] \demux_endpoint2_source_payload_data [6] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [1] \demux_endpoint2_source_payload_data [5:4] \demux_endpoint2_source_eop }
-    connect \EN $memory\storage_6$wren[1][0][0]$y$1567
-    connect \Q { \storage_6[1] [7] \storage_6[1] [3:2] \storage_6[1] [6] \storage_6[1] [0] \storage_6[1] [1] \storage_6[1] [5:4] \storage_6[1] [8] }
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4980
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 4'0000
-    parameter \WIDTH 4
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$784.Y [3:2] $auto$alumacc.cc:485:replace_alu$784.X [0] $auto$alumacc.cc:485:replace_alu$784.Y [1] }
-    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$752
-    connect \Q { \syncfifo1_level0 [3:2] \syncfifo1_level0 [0] \syncfifo1_level0 [1] }
-    connect \SRST \sys_rst
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4981
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [7] \sink_payload_data_1 [0] \sink_payload_data_1 [6] \sink_eop_1 \sink_payload_data_1 [5] \sink_payload_data_1 [1] \sink_payload_data_1 [3] \sink_payload_data_1 [4] }
+    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [0] \sink_payload_data_1 [3] \sink_payload_data_1 [7] \sink_payload_data_1 [5] \sink_eop_1 \sink_payload_data_1 [6] \sink_payload_data_1 [1] \sink_payload_data_1 [4] }
     connect \EN $memory\storage_1$wren[0][0][0]$y$1034
-    connect \Q { \storage_1[0] [2] \storage_1[0] [7] \storage_1[0] [0] \storage_1[0] [6] \storage_1[0] [8] \storage_1[0] [5] \storage_1[0] [1] \storage_1[0] [3] \storage_1[0] [4] }
+    connect \Q { \storage_1[0] [2] \storage_1[0] [0] \storage_1[0] [3] \storage_1[0] [7] \storage_1[0] [5] \storage_1[0] [8] \storage_1[0] [6] \storage_1[0] [1] \storage_1[0] [4] }
   end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4982
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$832.Y [2] $auto$alumacc.cc:485:replace_alu$832.X [0] $auto$alumacc.cc:485:replace_alu$832.Y [1] }
-    connect \EN \syncfifo3_wrport_we1
-    connect \Q { \syncfifo3_produce1 [2] \syncfifo3_produce1 [0] \syncfifo3_produce1 [1] }
-    connect \SRST \sys_rst
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4983
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$778.Y [2] $auto$alumacc.cc:485:replace_alu$778.X [0] $auto$alumacc.cc:485:replace_alu$778.Y [1] }
-    connect \EN \syncfifo1_wrport_we0
-    connect \Q { \syncfifo1_produce0 [2] \syncfifo1_produce0 [0] \syncfifo1_produce0 [1] }
-    connect \SRST \sys_rst
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4984
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4974
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint3_source_payload_data [0] \demux_endpoint3_source_payload_data [3] \demux_endpoint3_source_payload_data [1] \demux_endpoint3_source_payload_data [2] \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data [7:4] }
-    connect \EN $memory\storage_7$wren[7][0][0]$y$1718
-    connect \Q { \storage_7[7] [0] \storage_7[7] [3] \storage_7[7] [1] \storage_7[7] [2] \storage_7[7] [8:4] }
+    connect \D { \sink_payload_data [6] \sink_payload_data [1] \sink_payload_data [5:4] \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [7] \sink_eop }
+    connect \EN $memory\storage$wren[5][0][0]$y$969
+    connect \Q { \storage[5] [6] \storage[5] [1] \storage[5] [5:4] \storage[5] [2] \storage[5] [0] \storage[5] [3] \storage[5] [7] \storage[5] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4985
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$835.Y [2] $auto$alumacc.cc:485:replace_alu$835.X [0] $auto$alumacc.cc:485:replace_alu$835.Y [1] }
-    connect \EN \syncfifo3_do_read1
-    connect \Q { \syncfifo3_consume1 [2] \syncfifo3_consume1 [0] \syncfifo3_consume1 [1] }
-    connect \SRST \sys_rst
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4986
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4975
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
@@ -1664,84 +1545,127 @@ module \top
     connect \Q \syncfifo1_consume0
     connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4987
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4976
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \WIDTH 9
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7:2] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [1] }
-    connect \EN $memory\storage_6$wren[5][0][0]$y$1599
-    connect \Q { \storage_6[5] [8:2] \storage_6[5] [0] \storage_6[5] [1] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$826.Y [1] $auto$alumacc.cc:485:replace_alu$826.X [0] $auto$alumacc.cc:485:replace_alu$826.Y [2] }
+    connect \EN \syncfifo2_do_read1
+    connect \Q { \syncfifo2_consume1 [1:0] \syncfifo2_consume1 [2] }
+    connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4988
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4977
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7:6] \demux_endpoint2_source_payload_data [4:3] \demux_endpoint2_source_payload_data [5] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [2:1] }
-    connect \EN $memory\storage_6$wren[7][0][0]$y$1613
-    connect \Q { \storage_6[7] [8:6] \storage_6[7] [4:3] \storage_6[7] [5] \storage_6[7] [0] \storage_6[7] [2:1] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [7:6] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[0][0][0]$y$1244
+    connect \Q { \storage_3[0] [2] \storage_3[0] [0] \storage_3[0] [3] \storage_3[0] [5:4] \storage_3[0] [1] \storage_3[0] [7:6] \storage_3[0] [8] }
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4989
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4978
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [7:5] \sink_eop \sink_payload_data [0] \sink_payload_data [1] \sink_payload_data [2] \sink_payload_data [3] \sink_payload_data [4] }
-    connect \EN $memory\storage$wren[2][0][0]$y$947
-    connect \Q { \storage[2] [7:5] \storage[2] [8] \storage[2] [0] \storage[2] [1] \storage[2] [2] \storage[2] [3] \storage[2] [4] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4990
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_payload_data [5:4] \demux_endpoint2_source_payload_data [7:6] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [3:2] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [1] }
-    connect \EN $memory\storage_6$wren[2][0][0]$y$1577
-    connect \Q { \storage_6[2] [5:4] \storage_6[2] [7:6] \storage_6[2] [8] \storage_6[2] [3:2] \storage_6[2] [0] \storage_6[2] [1] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4991
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [1] \sink_payload_data_3 [4] \sink_payload_data_3 [0] \sink_payload_data_3 [3] }
-    connect \EN $memory\storage_3$wren[6][0][0]$y$1292
-    connect \Q { \storage_3[6] [2] \storage_3[6] [7:5] \storage_3[6] [8] \storage_3[6] [1] \storage_3[6] [4] \storage_3[6] [0] \storage_3[6] [3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4992
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [0] \sink_eop_1 \sink_payload_data_1 [1] \sink_payload_data_1 [4] \sink_payload_data_1 [2] \sink_payload_data_1 [7:5] \sink_payload_data_1 [3] }
-    connect \EN $memory\storage_1$wren[5][0][0]$y$1074
-    connect \Q { \storage_1[5] [0] \storage_1[5] [8] \storage_1[5] [1] \storage_1[5] [4] \storage_1[5] [2] \storage_1[5] [7:5] \storage_1[5] [3] }
+    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [0] \sink_payload_data_1 [3] \sink_payload_data_1 [5:4] \sink_payload_data_1 [1] \sink_payload_data_1 [7:6] \sink_eop_1 }
+    connect \EN $memory\storage_1$wren[7][0][0]$y$1088
+    connect \Q { \storage_1[7] [2] \storage_1[7] [0] \storage_1[7] [3] \storage_1[7] [5:4] \storage_1[7] [1] \storage_1[7] [7:6] \storage_1[7] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4993
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4979
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 4'0000
     parameter \WIDTH 4
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$793.Y [3:1] $auto$alumacc.cc:485:replace_alu$793.X [0] }
-    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$740
-    connect \Q \syncfifo2_level0
+    connect \D { $auto$alumacc.cc:485:replace_alu$838.X [0] $auto$alumacc.cc:485:replace_alu$838.Y [1] $auto$alumacc.cc:485:replace_alu$838.Y [3:2] }
+    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$676
+    connect \Q { \syncfifo3_level1 [0] \syncfifo3_level1 [1] \syncfifo3_level1 [3:2] }
     connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$4994
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4980
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_payload_data [6:4] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [1] \demux_endpoint1_source_payload_data [3:2] }
-    connect \EN $memory\storage_5$wren[7][0][0]$y$1508
-    connect \Q { \storage_5[7] [6:4] \storage_5[7] [8:7] \storage_5[7] [0] \storage_5[7] [1] \storage_5[7] [3:2] }
+    connect \D { \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data }
+    connect \EN $memory\storage_6$wren[5][0][0]$y$1599
+    connect \Q \storage_6[5]
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4981
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [6] \sink_payload_data_2 [7] \sink_eop_2 }
+    connect \EN $memory\storage_2$wren[6][0][0]$y$1187
+    connect \Q { \storage_2[6] [2] \storage_2[6] [0] \storage_2[6] [3] \storage_2[6] [5:4] \storage_2[6] [1] \storage_2[6] [6] \storage_2[6] [7] \storage_2[6] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$4995
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4982
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$778.Y [2:1] $auto$alumacc.cc:485:replace_alu$778.X [0] }
+    connect \EN \syncfifo1_wrport_we0
+    connect \Q \syncfifo1_produce0
+    connect \SRST \sys_rst
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4983
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$832.X [0] $auto$alumacc.cc:485:replace_alu$832.Y [1] $auto$alumacc.cc:485:replace_alu$832.Y [2] }
+    connect \EN \syncfifo3_wrport_we1
+    connect \Q { \syncfifo3_produce1 [0] \syncfifo3_produce1 [1] \syncfifo3_produce1 [2] }
+    connect \SRST \sys_rst
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4984
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5:4] \sink_payload_data [1] \sink_payload_data [6] \sink_eop \sink_payload_data [7] }
+    connect \EN $memory\storage$wren[6][0][0]$y$977
+    connect \Q { \storage[6] [2] \storage[6] [0] \storage[6] [3] \storage[6] [5:4] \storage[6] [1] \storage[6] [6] \storage[6] [8:7] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4985
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
+    connect \EN $memory\storage_5$wren[5][0][0]$y$1494
+    connect \Q \storage_5[5]
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4986
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$835.X [0] $auto$alumacc.cc:485:replace_alu$835.Y [1] $auto$alumacc.cc:485:replace_alu$835.Y [2] }
+    connect \EN \syncfifo3_do_read1
+    connect \Q { \syncfifo3_consume1 [0] \syncfifo3_consume1 [1] \syncfifo3_consume1 [2] }
+    connect \SRST \sys_rst
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4987
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
@@ -1753,124 +1677,147 @@ module \top
     connect \Q \syncfifo2_produce0
     connect \SRST \sys_rst
   end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$4988
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 4'0000
+    parameter \WIDTH 4
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$793.Y [3:2] $auto$alumacc.cc:485:replace_alu$793.X [0] $auto$alumacc.cc:485:replace_alu$793.Y [1] }
+    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$740
+    connect \Q { \syncfifo2_level0 [3:2] \syncfifo2_level0 [0] \syncfifo2_level0 [1] }
+    connect \SRST \sys_rst
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4989
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint0_source_payload_data [5:1] \demux_endpoint0_source_payload_data [7:6] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_eop }
+    connect \EN $memory\storage_4$wren[3][0][0]$y$1373
+    connect \Q { \storage_4[3] [5:1] \storage_4[3] [7:6] \storage_4[3] [0] \storage_4[3] [8] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4990
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5:4] \sink_payload_data [7] \sink_payload_data [2] \sink_payload_data [6] \sink_eop \sink_payload_data [1] }
+    connect \EN $memory\storage$wren[2][0][0]$y$947
+    connect \Q { \storage[2] [0] \storage[2] [3] \storage[2] [5:4] \storage[2] [7] \storage[2] [2] \storage[2] [6] \storage[2] [8] \storage[2] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4991
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint3_source_payload_data [1] \demux_endpoint3_source_payload_data [3:2] \demux_endpoint3_source_payload_data [0] \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data [7:4] }
+    connect \EN $memory\storage_7$wren[7][0][0]$y$1718
+    connect \Q { \storage_7[7] [1] \storage_7[7] [3:2] \storage_7[7] [0] \storage_7[7] [8:4] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4992
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data [5] \sink_payload_data [7] \sink_payload_data [0] \sink_eop \sink_payload_data [6] \sink_payload_data [2] \sink_payload_data [3] \sink_payload_data [4] \sink_payload_data [1] }
+    connect \EN $memory\storage$wren[3][0][0]$y$953
+    connect \Q { \storage[3] [5] \storage[3] [7] \storage[3] [0] \storage[3] [8] \storage[3] [6] \storage[3] [2] \storage[3] [3] \storage[3] [4] \storage[3] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4993
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint2_source_payload_data [4] \demux_endpoint2_source_payload_data [5] \demux_endpoint2_source_payload_data [2] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [7] \demux_endpoint2_source_payload_data [1] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [3] \demux_endpoint2_source_payload_data [6] }
+    connect \EN $memory\storage_6$wren[7][0][0]$y$1613
+    connect \Q { \storage_6[7] [4] \storage_6[7] [5] \storage_6[7] [2] \storage_6[7] [0] \storage_6[7] [7] \storage_6[7] [1] \storage_6[7] [8] \storage_6[7] [3] \storage_6[7] [6] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4994
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [3] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_payload_data [4] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [1] \demux_endpoint1_source_payload_data [2] }
+    connect \EN $memory\storage_5$wren[0][0][0]$y$1454
+    connect \Q { \storage_5[0] [7] \storage_5[0] [3] \storage_5[0] [8] \storage_5[0] [0] \storage_5[0] [6] \storage_5[0] [4] \storage_5[0] [5] \storage_5[0] [1] \storage_5[0] [2] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$4995
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint0_source_payload_data [1:0] \demux_endpoint0_source_payload_data [7] \demux_endpoint0_source_payload_data [4:2] \demux_endpoint0_source_payload_data [6:5] \demux_endpoint0_source_eop }
+    connect \EN $memory\storage_4$wren[6][0][0]$y$1397
+    connect \Q { \storage_4[6] [1:0] \storage_4[6] [7] \storage_4[6] [4:2] \storage_4[6] [6:5] \storage_4[6] [8] }
+  end
   cell $dffe $auto$register.cc:102:replace_ff_groups$4996
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data }
-    connect \EN $memory\storage_7$wren[0][0][0]$y$1664
-    connect \Q \storage_7[0]
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [7:6] \sink_eop_3 \sink_payload_data_3 [1] }
+    connect \EN $memory\storage_3$wren[5][0][0]$y$1284
+    connect \Q { \storage_3[5] [2] \storage_3[5] [0] \storage_3[5] [3] \storage_3[5] [5:4] \storage_3[5] [7:6] \storage_3[5] [8] \storage_3[5] [1] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$4997
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [7:2] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [1] }
-    connect \EN $memory\storage_5$wren[4][0][0]$y$1488
-    connect \Q { \storage_5[4] [8:2] \storage_5[4] [0] \storage_5[4] [1] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [6] \sink_payload_data_3 [7] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[6][0][0]$y$1292
+    connect \Q { \storage_3[6] [2] \storage_3[6] [0] \storage_3[6] [3] \storage_3[6] [5:4] \storage_3[6] [1] \storage_3[6] [6] \storage_3[6] [7] \storage_3[6] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$4998
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_payload_data [6:5] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [4:1] }
+    connect \D { \demux_endpoint2_source_payload_data [7:3] \demux_endpoint2_source_payload_data [1:0] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [2] }
     connect \EN $memory\storage_6$wren[3][0][0]$y$1583
-    connect \Q { \storage_6[3] [6:5] \storage_6[3] [8:7] \storage_6[3] [0] \storage_6[3] [4:1] }
+    connect \Q { \storage_6[3] [7:3] \storage_6[3] [1:0] \storage_6[3] [8] \storage_6[3] [2] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$4999
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_payload_data [6:2] \demux_endpoint0_source_payload_data [7] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_payload_data [1] }
-    connect \EN $memory\storage_4$wren[7][0][0]$y$1403
-    connect \Q { \storage_4[7] [6:2] \storage_4[7] [7] \storage_4[7] [8] \storage_4[7] [0] \storage_4[7] [1] }
+    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data [7:5] \demux_endpoint3_source_payload_data [0] \demux_endpoint3_source_payload_data [2:1] \demux_endpoint3_source_payload_data [4:3] }
+    connect \EN $memory\storage_7$wren[0][0][0]$y$1664
+    connect \Q { \storage_7[0] [8:5] \storage_7[0] [0] \storage_7[0] [2:1] \storage_7[0] [4:3] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5000
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [0] \sink_payload_data_3 [4:3] \sink_payload_data_3 [1] }
-    connect \EN $memory\storage_3$wren[5][0][0]$y$1284
-    connect \Q { \storage_3[5] [2] \storage_3[5] [7:5] \storage_3[5] [8] \storage_3[5] [0] \storage_3[5] [4:3] \storage_3[5] [1] }
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [6] \sink_payload_data_2 [7] \sink_eop_2 }
+    connect \EN $memory\storage_2$wren[3][0][0]$y$1163
+    connect \Q { \storage_2[3] [2] \storage_2[3] [0] \storage_2[3] [3] \storage_2[3] [5:4] \storage_2[3] [1] \storage_2[3] [6] \storage_2[3] [7] \storage_2[3] [8] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5001
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_1 [7] \sink_payload_data_1 [2] \sink_payload_data_1 [0] \sink_payload_data_1 [3] \sink_payload_data_1 [6] \sink_eop_1 \sink_payload_data_1 [5:4] \sink_payload_data_1 [1] }
+    connect \EN $memory\storage_1$wren[4][0][0]$y$1068
+    connect \Q { \storage_1[4] [7] \storage_1[4] [2] \storage_1[4] [0] \storage_1[4] [3] \storage_1[4] [6] \storage_1[4] [8] \storage_1[4] [5:4] \storage_1[4] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5002
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint1_source_payload_data [1] \demux_endpoint1_source_payload_data [2] \demux_endpoint1_source_payload_data [3] \demux_endpoint1_source_payload_data [4] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [7] }
+    connect \EN $memory\storage_5$wren[2][0][0]$y$1472
+    connect \Q { \storage_5[2] [1] \storage_5[2] [2] \storage_5[2] [3] \storage_5[2] [4] \storage_5[2] [5] \storage_5[2] [0] \storage_5[2] [6] \storage_5[2] [8:7] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5001
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$796.Y [2:1] $auto$alumacc.cc:485:replace_alu$796.X [0] }
-    connect \EN \syncfifo3_wrport_we0
-    connect \Q \syncfifo3_produce0
-    connect \SRST \sys_rst
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5002
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
-    connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$790.Y [2:1] $auto$alumacc.cc:485:replace_alu$790.X [0] }
-    connect \EN \syncfifo2_do_read0
-    connect \Q \syncfifo2_consume0
-    connect \SRST \sys_rst
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5003
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data [0] \sink_payload_data [7] \sink_payload_data [3:2] \sink_payload_data [6:5] \sink_eop \sink_payload_data [1] \sink_payload_data [4] }
-    connect \EN $memory\storage$wren[3][0][0]$y$953
-    connect \Q { \storage[3] [0] \storage[3] [7] \storage[3] [3:2] \storage[3] [6:5] \storage[3] [8] \storage[3] [1] \storage[3] [4] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5004
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7:4] \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [1] \demux_endpoint2_source_payload_data [3:2] }
-    connect \EN $memory\storage_6$wren[4][0][0]$y$1593
-    connect \Q { \storage_6[4] [8:4] \storage_6[4] [0] \storage_6[4] [1] \storage_6[4] [3:2] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5005
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data }
-    connect \EN $memory\storage_7$wren[1][0][0]$y$1672
-    connect \Q \storage_7[1]
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5006
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [4] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [2:1] \demux_endpoint1_source_payload_data [3] }
-    connect \EN $memory\storage_5$wren[1][0][0]$y$1462
-    connect \Q { \storage_5[1] [8] \storage_5[1] [6] \storage_5[1] [7] \storage_5[1] [4] \storage_5[1] [0] \storage_5[1] [5] \storage_5[1] [2:1] \storage_5[1] [3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5007
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_payload_data [5:4] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7:6] \demux_endpoint0_source_payload_data [3:0] }
-    connect \EN $memory\storage_4$wren[6][0][0]$y$1397
-    connect \Q { \storage_4[6] [5:4] \storage_4[6] [8:6] \storage_4[6] [3:0] }
-  end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5008
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5003
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
@@ -1882,63 +1829,116 @@ module \top
     connect \Q \syncfifo3_level0
     connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5009
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5004
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [2] \sink_payload_data [7:5] \sink_eop \sink_payload_data [1] \sink_payload_data [4] \sink_payload_data [0] \sink_payload_data [3] }
-    connect \EN $memory\storage$wren[7][0][0]$y$983
-    connect \Q { \storage[7] [2] \storage[7] [7:5] \storage[7] [8] \storage[7] [1] \storage[7] [4] \storage[7] [0] \storage[7] [3] }
+    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
+    connect \EN $memory\storage_5$wren[4][0][0]$y$1488
+    connect \Q \storage_5[4]
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5005
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint0_source_payload_data [3:2] \demux_endpoint0_source_payload_data [5:4] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7:6] \demux_endpoint0_source_payload_data [1:0] }
+    connect \EN $memory\storage_4$wren[4][0][0]$y$1383
+    connect \Q { \storage_4[4] [3:2] \storage_4[4] [5:4] \storage_4[4] [8:6] \storage_4[4] [1:0] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5006
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data [7:2] \demux_endpoint3_source_payload_data [0] \demux_endpoint3_source_payload_data [1] }
+    connect \EN $memory\storage_7$wren[1][0][0]$y$1672
+    connect \Q { \storage_7[1] [8:2] \storage_7[1] [0] \storage_7[1] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5007
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint2_source_payload_data [3:2] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7:6] \demux_endpoint2_source_payload_data [1] \demux_endpoint2_source_payload_data [5:4] \demux_endpoint2_source_payload_data [0] }
+    connect \EN $memory\storage_6$wren[2][0][0]$y$1577
+    connect \Q { \storage_6[2] [3:2] \storage_6[2] [8:6] \storage_6[2] [1] \storage_6[2] [5:4] \storage_6[2] [0] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5010
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5008
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 3'000
     parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$799.Y [2:1] $auto$alumacc.cc:485:replace_alu$799.X [0] }
-    connect \EN \syncfifo3_do_read0
-    connect \Q \syncfifo3_consume0
+    connect \D { $auto$alumacc.cc:485:replace_alu$790.Y [2:1] $auto$alumacc.cc:485:replace_alu$790.X [0] }
+    connect \EN \syncfifo2_do_read0
+    connect \Q \syncfifo2_consume0
     connect \SRST \sys_rst
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5009
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_eop_2 \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [7:6] }
+    connect \EN $memory\storage_2$wren[7][0][0]$y$1193
+    connect \Q { \storage_2[7] [8] \storage_2[7] [2] \storage_2[7] [0] \storage_2[7] [3] \storage_2[7] [5:4] \storage_2[7] [1] \storage_2[7] [7:6] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5010
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [6] \sink_payload_data_2 [7] \sink_eop_2 }
+    connect \EN $memory\storage_2$wren[5][0][0]$y$1179
+    connect \Q { \storage_2[5] [2] \storage_2[5] [0] \storage_2[5] [3] \storage_2[5] [5:4] \storage_2[5] [1] \storage_2[5] [6] \storage_2[5] [7] \storage_2[5] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5011
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [2] \sink_payload_data [7] \sink_payload_data [5] \sink_eop \sink_payload_data [1:0] \sink_payload_data [6] \sink_payload_data [3] \sink_payload_data [4] }
-    connect \EN $memory\storage$wren[0][0][0]$y$929
-    connect \Q { \storage[0] [2] \storage[0] [7] \storage[0] [5] \storage[0] [8] \storage[0] [1:0] \storage[0] [6] \storage[0] [3] \storage[0] [4] }
+    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [0] \sink_payload_data_1 [3] \sink_payload_data_1 [5:4] \sink_payload_data_1 [7] \sink_payload_data_1 [1] \sink_payload_data_1 [6] \sink_eop_1 }
+    connect \EN $memory\storage_1$wren[5][0][0]$y$1074
+    connect \Q { \storage_1[5] [2] \storage_1[5] [0] \storage_1[5] [3] \storage_1[5] [5:4] \storage_1[5] [7] \storage_1[5] [1] \storage_1[5] [6] \storage_1[5] [8] }
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5012
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5012
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \WIDTH 9
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 4'0000
+    parameter \WIDTH 4
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [5] \sink_payload_data_2 [3] \sink_payload_data_2 [4] \sink_payload_data_2 [2] \sink_payload_data_2 [7:6] \sink_eop_2 \sink_payload_data_2 [1:0] }
-    connect \EN $memory\storage_2$wren[7][0][0]$y$1193
-    connect \Q { \storage_2[7] [5] \storage_2[7] [3] \storage_2[7] [4] \storage_2[7] [2] \storage_2[7] [7:6] \storage_2[7] [8] \storage_2[7] [1:0] }
+    connect \D { \o [1] $auto$alumacc.cc:485:replace_alu$766.Y [1] $auto$alumacc.cc:485:replace_alu$766.X [0] \o [0] }
+    connect \EN $and$stream_router.v:711$71_Y
+    connect \Q { \mux_sel [1] \demux_sel \mux_sel [0] }
+    connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5013
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5013
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \WIDTH 9
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [1:0] \sink_payload_data_3 [3] \sink_payload_data_3 [4] }
-    connect \EN $memory\storage_3$wren[4][0][0]$y$1278
-    connect \Q { \storage_3[4] [2] \storage_3[4] [7:5] \storage_3[4] [8] \storage_3[4] [1:0] \storage_3[4] [3] \storage_3[4] [4] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$799.Y [2] $auto$alumacc.cc:485:replace_alu$799.X [0] $auto$alumacc.cc:485:replace_alu$799.Y [1] }
+    connect \EN \syncfifo3_do_read0
+    connect \Q { \syncfifo3_consume0 [2] \syncfifo3_consume0 [0] \syncfifo3_consume0 [1] }
+    connect \SRST \sys_rst
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5014
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1] \sink_payload_data_2 [4] \sink_payload_data_2 [0] \sink_payload_data_2 [3] }
-    connect \EN $memory\storage_2$wren[6][0][0]$y$1187
-    connect \Q { \storage_2[6] [2] \storage_2[6] [7:5] \storage_2[6] [8] \storage_2[6] [1] \storage_2[6] [4] \storage_2[6] [0] \storage_2[6] [3] }
+    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
+    connect \EN $memory\storage_5$wren[3][0][0]$y$1478
+    connect \Q \storage_5[3]
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5015
     parameter \CLK_POLARITY 1
@@ -1949,106 +1949,65 @@ module \top
     connect \EN $memory\storage_7$wren[2][0][0]$y$1682
     connect \Q { \storage_7[2] [8:2] \storage_7[2] [0] \storage_7[2] [1] }
   end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5016
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5016
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 4'0000
-    parameter \WIDTH 4
+    parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$766.Y [1] \o [1] $auto$alumacc.cc:485:replace_alu$766.X [0] \o [0] }
-    connect \EN $and$stream_router.v:711$71_Y
-    connect \Q { \demux_sel [1] \mux_sel [1] \demux_sel [0] \mux_sel [0] }
-    connect \SRST \sys_rst
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [7] \sink_eop_3 \sink_payload_data_3 [6] }
+    connect \EN $memory\storage_3$wren[4][0][0]$y$1278
+    connect \Q { \storage_3[4] [2] \storage_3[4] [0] \storage_3[4] [3] \storage_3[4] [5:4] \storage_3[4] [1] \storage_3[4] [7] \storage_3[4] [8] \storage_3[4] [6] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5017
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data }
-    connect \EN $memory\storage_4$wren[1][0][0]$y$1357
-    connect \Q \storage_4[1]
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [6] \sink_payload_data_2 [7] \sink_eop_2 }
+    connect \EN $memory\storage_2$wren[4][0][0]$y$1173
+    connect \Q { \storage_2[4] [2] \storage_2[4] [0] \storage_2[4] [3] \storage_2[4] [5:4] \storage_2[4] [1] \storage_2[4] [6] \storage_2[4] [7] \storage_2[4] [8] }
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5018
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5018
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \WIDTH 9
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
-    connect \EN $memory\storage_5$wren[3][0][0]$y$1478
-    connect \Q \storage_5[3]
+    connect \D { $auto$alumacc.cc:485:replace_alu$796.Y [2] $auto$alumacc.cc:485:replace_alu$796.X [0] $auto$alumacc.cc:485:replace_alu$796.Y [1] }
+    connect \EN \syncfifo3_wrport_we0
+    connect \Q { \syncfifo3_produce0 [2] \syncfifo3_produce0 [0] \syncfifo3_produce0 [1] }
+    connect \SRST \sys_rst
   end
   attribute \src "stream_router.v:710.1-865.4"
   cell $sdffe $auto$register.cc:102:replace_ff_groups$5019
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$805.Y [2] $auto$alumacc.cc:485:replace_alu$805.X [0] $auto$alumacc.cc:485:replace_alu$805.Y [1] }
+    connect \EN \syncfifo0_wrport_we1
+    connect \Q { \syncfifo0_produce1 [2] \syncfifo0_produce1 [0] \syncfifo0_produce1 [1] }
+    connect \SRST \sys_rst
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5020
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 4'0000
     parameter \WIDTH 4
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$811.Y [3:1] $auto$alumacc.cc:485:replace_alu$811.X [0] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$811.Y [3:2] $auto$alumacc.cc:485:replace_alu$811.X [0] $auto$alumacc.cc:485:replace_alu$811.Y [1] }
     connect \EN $auto$opt_dff.cc:220:make_patterns_logic$712
-    connect \Q \syncfifo0_level1
+    connect \Q { \syncfifo0_level1 [3:2] \syncfifo0_level1 [0] \syncfifo0_level1 [1] }
     connect \SRST \sys_rst
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5020
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [3] \sink_payload_data_2 [4] }
-    connect \EN $memory\storage_2$wren[5][0][0]$y$1179
-    connect \Q { \storage_2[5] [2] \storage_2[5] [7:5] \storage_2[5] [8] \storage_2[5] [1:0] \storage_2[5] [3] \storage_2[5] [4] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5021
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
-    connect \EN $memory\storage_5$wren[6][0][0]$y$1502
-    connect \Q \storage_5[6]
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5022
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [1:0] \sink_payload_data_3 [4:3] }
-    connect \EN $memory\storage_3$wren[3][0][0]$y$1268
-    connect \Q { \storage_3[3] [2] \storage_3[3] [7:5] \storage_3[3] [8] \storage_3[3] [1:0] \storage_3[3] [4:3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5023
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [6:5] \sink_eop_1 \sink_payload_data_1 [1] \sink_payload_data_1 [2] \sink_payload_data_1 [7] \sink_payload_data_1 [3] \sink_payload_data_1 [4] \sink_payload_data_1 [0] }
-    connect \EN $memory\storage_1$wren[4][0][0]$y$1068
-    connect \Q { \storage_1[4] [6:5] \storage_1[4] [8] \storage_1[4] [1] \storage_1[4] [2] \storage_1[4] [7] \storage_1[4] [3] \storage_1[4] [4] \storage_1[4] [0] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5024
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data [7:2] \demux_endpoint3_source_payload_data [0] \demux_endpoint3_source_payload_data [1] }
-    connect \EN $memory\storage_7$wren[3][0][0]$y$1688
-    connect \Q { \storage_7[3] [8:2] \storage_7[3] [0] \storage_7[3] [1] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5025
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [3] \sink_payload_data_2 [4] }
-    connect \EN $memory\storage_2$wren[4][0][0]$y$1173
-    connect \Q { \storage_2[4] [2] \storage_2[4] [7:5] \storage_2[4] [8] \storage_2[4] [1:0] \storage_2[4] [3] \storage_2[4] [4] }
-  end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5026
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5021
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
@@ -2060,36 +2019,77 @@ module \top
     connect \Q \syncfifo0_level0
     connect \SRST \sys_rst
   end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5027
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5022
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
+    parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$805.X [0] $auto$alumacc.cc:485:replace_alu$805.Y [2:1] }
-    connect \EN \syncfifo0_wrport_we1
-    connect \Q { \syncfifo0_produce1 [0] \syncfifo0_produce1 [2:1] }
-    connect \SRST \sys_rst
+    connect \D { \sink_payload_data [6] \sink_eop \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5:4] \sink_payload_data [7] \sink_payload_data [1] }
+    connect \EN $memory\storage$wren[4][0][0]$y$963
+    connect \Q { \storage[4] [6] \storage[4] [8] \storage[4] [2] \storage[4] [0] \storage[4] [3] \storage[4] [5:4] \storage[4] [7] \storage[4] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5023
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint3_source_eop \demux_endpoint3_source_payload_data }
+    connect \EN $memory\storage_7$wren[3][0][0]$y$1688
+    connect \Q \storage_7[3]
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5024
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data }
+    connect \EN $memory\storage_4$wren[1][0][0]$y$1357
+    connect \Q \storage_4[1]
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5025
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5:4] \sink_payload_data [1] \sink_payload_data [6] \sink_payload_data [7] \sink_eop }
+    connect \EN $memory\storage$wren[7][0][0]$y$983
+    connect \Q { \storage[7] [2] \storage[7] [0] \storage[7] [3] \storage[7] [5:4] \storage[7] [1] \storage[7] [6] \storage[7] [7] \storage[7] [8] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5026
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [3] \sink_payload_data_1 [5:4] \sink_payload_data_1 [0] \sink_payload_data_1 [6] \sink_payload_data_1 [1] \sink_eop_1 \sink_payload_data_1 [7] }
+    connect \EN $memory\storage_1$wren[3][0][0]$y$1058
+    connect \Q { \storage_1[3] [2] \storage_1[3] [3] \storage_1[3] [5:4] \storage_1[3] [0] \storage_1[3] [6] \storage_1[3] [1] \storage_1[3] [8:7] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5027
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_1 [0] \sink_payload_data_1 [3] \sink_payload_data_1 [5:4] \sink_payload_data_1 [2] \sink_payload_data_1 [7] \sink_payload_data_1 [1] \sink_eop_1 \sink_payload_data_1 [6] }
+    connect \EN $memory\storage_1$wren[1][0][0]$y$1042
+    connect \Q { \storage_1[1] [0] \storage_1[1] [3] \storage_1[1] [5:4] \storage_1[1] [2] \storage_1[1] [7] \storage_1[1] [1] \storage_1[1] [8] \storage_1[1] [6] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5028
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [4:3] }
-    connect \EN $memory\storage_2$wren[1][0][0]$y$1147
-    connect \Q { \storage_2[1] [2] \storage_2[1] [7:5] \storage_2[1] [8] \storage_2[1] [1:0] \storage_2[1] [4:3] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [7:6] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[3][0][0]$y$1268
+    connect \Q { \storage_3[3] [2] \storage_3[3] [0] \storage_3[3] [3] \storage_3[3] [5:4] \storage_3[3] [1] \storage_3[3] [7:6] \storage_3[3] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5029
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_payload_data [1] \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [3] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [5:4] \demux_endpoint1_source_payload_data [2] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [6] }
-    connect \EN $memory\storage_5$wren[2][0][0]$y$1472
-    connect \Q { \storage_5[2] [1] \storage_5[2] [7] \storage_5[2] [3] \storage_5[2] [8] \storage_5[2] [5:4] \storage_5[2] [2] \storage_5[2] [0] \storage_5[2] [6] }
+    connect \D { \demux_endpoint0_source_payload_data [5:3] \demux_endpoint0_source_payload_data [1:0] \demux_endpoint0_source_payload_data [2] \demux_endpoint0_source_payload_data [7:6] \demux_endpoint0_source_eop }
+    connect \EN $memory\storage_4$wren[5][0][0]$y$1389
+    connect \Q { \storage_4[5] [5:3] \storage_4[5] [1:0] \storage_4[5] [2] \storage_4[5] [7:6] \storage_4[5] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5030
     parameter \CLK_POLARITY 1
@@ -2105,9 +2105,9 @@ module \top
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_payload_data [4:2] \demux_endpoint0_source_payload_data [6:5] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7] \demux_endpoint0_source_payload_data [1] }
-    connect \EN $memory\storage_4$wren[5][0][0]$y$1389
-    connect \Q { \storage_4[5] [4:2] \storage_4[5] [6:5] \storage_4[5] [0] \storage_4[5] [8:7] \storage_4[5] [1] }
+    connect \D { \demux_endpoint2_source_payload_data [3] \demux_endpoint2_source_payload_data [5:4] \demux_endpoint2_source_payload_data [2] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [6] \demux_endpoint2_source_payload_data [7] \demux_endpoint2_source_payload_data [1] }
+    connect \EN $memory\storage_6$wren[0][0][0]$y$1559
+    connect \Q { \storage_6[0] [3] \storage_6[0] [5:4] \storage_6[0] [2] \storage_6[0] [8] \storage_6[0] [0] \storage_6[0] [6] \storage_6[0] [7] \storage_6[0] [1] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5032
     parameter \CLK_POLARITY 1
@@ -2123,76 +2123,72 @@ module \top
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [3] \demux_endpoint0_source_payload_data [7:5] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_payload_data [1] \demux_endpoint0_source_payload_data [2] \demux_endpoint0_source_payload_data [4] }
+    connect \D { \demux_endpoint0_source_payload_data [5] \demux_endpoint0_source_payload_data [6] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7] \demux_endpoint0_source_payload_data [1] \demux_endpoint0_source_payload_data [2] \demux_endpoint0_source_payload_data [3] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_payload_data [4] }
     connect \EN $memory\storage_4$wren[2][0][0]$y$1367
-    connect \Q { \storage_4[2] [8] \storage_4[2] [3] \storage_4[2] [7:5] \storage_4[2] [0] \storage_4[2] [1] \storage_4[2] [2] \storage_4[2] [4] }
+    connect \Q { \storage_4[2] [5] \storage_4[2] [6] \storage_4[2] [8:7] \storage_4[2] [1] \storage_4[2] [2] \storage_4[2] [3] \storage_4[2] [0] \storage_4[2] [4] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5034
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_payload_data [1:0] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_payload_data [4] \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [3:2] }
-    connect \EN $memory\storage_5$wren[0][0][0]$y$1454
-    connect \Q { \storage_5[0] [1:0] \storage_5[0] [8] \storage_5[0] [6] \storage_5[0] [4] \storage_5[0] [7] \storage_5[0] [5] \storage_5[0] [3:2] }
+    connect \D { \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [7:6] \demux_endpoint2_source_payload_data [3:2] \demux_endpoint2_source_payload_data [5:4] \demux_endpoint2_source_payload_data [1:0] }
+    connect \EN $memory\storage_6$wren[4][0][0]$y$1593
+    connect \Q { \storage_6[4] [8:6] \storage_6[4] [3:2] \storage_6[4] [5:4] \storage_6[4] [1:0] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5035
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7:5] \demux_endpoint0_source_payload_data [3:0] \demux_endpoint0_source_payload_data [4] }
+    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7:5] \demux_endpoint0_source_payload_data [3:2] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_payload_data [1] \demux_endpoint0_source_payload_data [4] }
     connect \EN $memory\storage_4$wren[0][0][0]$y$1349
-    connect \Q { \storage_4[0] [8:5] \storage_4[0] [3:0] \storage_4[0] [4] }
+    connect \Q { \storage_4[0] [8:5] \storage_4[0] [3:2] \storage_4[0] [0] \storage_4[0] [1] \storage_4[0] [4] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5036
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint2_source_payload_data [4] \demux_endpoint2_source_payload_data [6:5] \demux_endpoint2_source_payload_data [7] \demux_endpoint2_source_payload_data [2:1] \demux_endpoint2_source_eop \demux_endpoint2_source_payload_data [3] \demux_endpoint2_source_payload_data [0] }
-    connect \EN $memory\storage_6$wren[0][0][0]$y$1559
-    connect \Q { \storage_6[0] [4] \storage_6[0] [6:5] \storage_6[0] [7] \storage_6[0] [2:1] \storage_6[0] [8] \storage_6[0] [3] \storage_6[0] [0] }
+    connect \D { \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_payload_data [4:3] \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [1] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [2] }
+    connect \EN $memory\storage_5$wren[7][0][0]$y$1508
+    connect \Q { \storage_5[7] [6] \storage_5[7] [4:3] \storage_5[7] [7] \storage_5[7] [8] \storage_5[7] [1] \storage_5[7] [5] \storage_5[7] [0] \storage_5[7] [2] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5037
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data }
-    connect \EN $memory\storage_4$wren[3][0][0]$y$1373
-    connect \Q \storage_4[3]
+    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [6] \demux_endpoint1_source_payload_data [4:2] \demux_endpoint1_source_payload_data [5] \demux_endpoint1_source_payload_data [7] \demux_endpoint1_source_payload_data [1] }
+    connect \EN $memory\storage_5$wren[1][0][0]$y$1462
+    connect \Q { \storage_5[1] [8] \storage_5[1] [0] \storage_5[1] [6] \storage_5[1] [4:2] \storage_5[1] [5] \storage_5[1] [7] \storage_5[1] [1] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5038
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint0_source_payload_data [1:0] \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [2] \demux_endpoint0_source_payload_data [5:3] \demux_endpoint0_source_payload_data [7:6] }
-    connect \EN $memory\storage_4$wren[4][0][0]$y$1383
-    connect \Q { \storage_4[4] [1:0] \storage_4[4] [8] \storage_4[4] [2] \storage_4[4] [5:3] \storage_4[4] [7:6] }
+    connect \D { \demux_endpoint2_source_payload_data [0] \demux_endpoint2_source_payload_data [7:4] \demux_endpoint2_source_payload_data [1] \demux_endpoint2_source_payload_data [3:2] \demux_endpoint2_source_eop }
+    connect \EN $memory\storage_6$wren[1][0][0]$y$1567
+    connect \Q { \storage_6[1] [0] \storage_6[1] [7:4] \storage_6[1] [1] \storage_6[1] [3:2] \storage_6[1] [8] }
   end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5039
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5039
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
+    parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$808.X [0] $auto$alumacc.cc:485:replace_alu$808.Y [2:1] }
-    connect \EN \syncfifo0_do_read1
-    connect \Q { \syncfifo0_consume1 [0] \syncfifo0_consume1 [2:1] }
-    connect \SRST \sys_rst
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [7:6] \sink_eop_2 }
+    connect \EN $memory\storage_2$wren[2][0][0]$y$1157
+    connect \Q { \storage_2[2] [2] \storage_2[2] [0] \storage_2[2] [3] \storage_2[2] [5:4] \storage_2[2] [1] \storage_2[2] [7:6] \storage_2[2] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5040
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [1] \sink_payload_data [4] \sink_payload_data [2] \sink_payload_data [7:5] \sink_eop \sink_payload_data [0] \sink_payload_data [3] }
-    connect \EN $memory\storage$wren[4][0][0]$y$963
-    connect \Q { \storage[4] [1] \storage[4] [4] \storage[4] [2] \storage[4] [7:5] \storage[4] [8] \storage[4] [0] \storage[4] [3] }
+    connect \D { \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5] \sink_payload_data [1] \sink_payload_data [7] \sink_payload_data [4] \sink_payload_data [6] \sink_eop }
+    connect \EN $memory\storage$wren[0][0][0]$y$929
+    connect \Q { \storage[0] [2] \storage[0] [0] \storage[0] [3] \storage[0] [5] \storage[0] [1] \storage[0] [7] \storage[0] [4] \storage[0] [6] \storage[0] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5041
     parameter \CLK_POLARITY 1
@@ -2203,53 +2199,61 @@ module \top
     connect \EN $memory\storage_7$wren[5][0][0]$y$1704
     connect \Q \storage_7[5]
   end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5042
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5042
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \WIDTH 9
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [0] \sink_payload_data_1 [2:1] \sink_payload_data_1 [7:5] \sink_eop_1 \sink_payload_data_1 [3] \sink_payload_data_1 [4] }
-    connect \EN $memory\storage_1$wren[1][0][0]$y$1042
-    connect \Q { \storage_1[1] [0] \storage_1[1] [2:1] \storage_1[1] [7:5] \storage_1[1] [8] \storage_1[1] [3] \storage_1[1] [4] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$814.Y [2:1] $auto$alumacc.cc:485:replace_alu$814.X [0] }
+    connect \EN \syncfifo1_wrport_we1
+    connect \Q \syncfifo1_produce1
+    connect \SRST \sys_rst
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5043
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [1:0] \sink_payload_data_3 [4:3] }
-    connect \EN $memory\storage_3$wren[2][0][0]$y$1262
-    connect \Q { \storage_3[2] [2] \storage_3[2] [7:5] \storage_3[2] [8] \storage_3[2] [1:0] \storage_3[2] [4:3] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5] \sink_payload_data_3 [1] \sink_payload_data_3 [6] \sink_payload_data_3 [7] \sink_payload_data_3 [4] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[7][0][0]$y$1298
+    connect \Q { \storage_3[7] [2] \storage_3[7] [0] \storage_3[7] [3] \storage_3[7] [5] \storage_3[7] [1] \storage_3[7] [6] \storage_3[7] [7] \storage_3[7] [4] \storage_3[7] [8] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5044
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [7:5] \sink_eop_1 \sink_payload_data_1 [1:0] \sink_payload_data_1 [4:3] }
-    connect \EN $memory\storage_1$wren[3][0][0]$y$1058
-    connect \Q { \storage_1[3] [2] \storage_1[3] [7:5] \storage_1[3] [8] \storage_1[3] [1:0] \storage_1[3] [4:3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5045
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [5] \sink_eop_3 \sink_payload_data_3 [1] \sink_payload_data_3 [6] \sink_payload_data_3 [4:3] \sink_payload_data_3 [0] \sink_payload_data_3 [7] }
-    connect \EN $memory\storage_3$wren[7][0][0]$y$1298
-    connect \Q { \storage_3[7] [2] \storage_3[7] [5] \storage_3[7] [8] \storage_3[7] [1] \storage_3[7] [6] \storage_3[7] [4:3] \storage_3[7] [0] \storage_3[7] [7] }
+    connect \D { \sink_payload_data_1 [5] \sink_payload_data_1 [1] \sink_payload_data_1 [3] \sink_payload_data_1 [6] \sink_payload_data_1 [2] \sink_payload_data_1 [0] \sink_payload_data_1 [4] \sink_payload_data_1 [7] \sink_eop_1 }
+    connect \EN $memory\storage_1$wren[2][0][0]$y$1052
+    connect \Q { \storage_1[2] [5] \storage_1[2] [1] \storage_1[2] [3] \storage_1[2] [6] \storage_1[2] [2] \storage_1[2] [0] \storage_1[2] [4] \storage_1[2] [7] \storage_1[2] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5046
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5045
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 4'0000
     parameter \WIDTH 4
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$820.X [0] $auto$alumacc.cc:485:replace_alu$820.Y [3] $auto$alumacc.cc:485:replace_alu$820.Y [1] $auto$alumacc.cc:485:replace_alu$820.Y [2] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$820.Y [3:2] $auto$alumacc.cc:485:replace_alu$820.X [0] $auto$alumacc.cc:485:replace_alu$820.Y [1] }
     connect \EN $auto$opt_dff.cc:220:make_patterns_logic$700
-    connect \Q { \syncfifo1_level1 [0] \syncfifo1_level1 [3] \syncfifo1_level1 [1] \syncfifo1_level1 [2] }
+    connect \Q { \syncfifo1_level1 [3:2] \syncfifo1_level1 [0] \syncfifo1_level1 [1] }
+    connect \SRST \sys_rst
+  end
+  attribute \src "stream_router.v:710.1-865.4"
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5046
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \SRST_POLARITY 1
+    parameter \SRST_VALUE 3'000
+    parameter \WIDTH 3
+    connect \CLK \sys_clk
+    connect \D { $auto$alumacc.cc:485:replace_alu$808.Y [2:1] $auto$alumacc.cc:485:replace_alu$808.X [0] }
+    connect \EN \syncfifo0_do_read1
+    connect \Q \syncfifo0_consume1
     connect \SRST \sys_rst
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5047
@@ -2257,30 +2261,30 @@ module \top
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [2] \sink_payload_data [7:5] \sink_eop \sink_payload_data [0] \sink_payload_data [4:3] \sink_payload_data [1] }
-    connect \EN $memory\storage$wren[1][0][0]$y$937
-    connect \Q { \storage[1] [2] \storage[1] [7:5] \storage[1] [8] \storage[1] [0] \storage[1] [4:3] \storage[1] [1] }
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [7] \sink_eop_2 \sink_payload_data_2 [6] }
+    connect \EN $memory\storage_2$wren[0][0][0]$y$1139
+    connect \Q { \storage_2[0] [2] \storage_2[0] [0] \storage_2[0] [3] \storage_2[0] [5:4] \storage_2[0] [1] \storage_2[0] [7] \storage_2[0] [8] \storage_2[0] [6] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5048
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [3] \sink_payload_data_2 [4] }
-    connect \EN $memory\storage_2$wren[3][0][0]$y$1163
-    connect \Q { \storage_2[3] [2] \storage_2[3] [7:5] \storage_2[3] [8] \storage_2[3] [1:0] \storage_2[3] [3] \storage_2[3] [4] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [7:6] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[2][0][0]$y$1262
+    connect \Q { \storage_3[2] [2] \storage_3[2] [0] \storage_3[2] [3] \storage_3[2] [5:4] \storage_3[2] [1] \storage_3[2] [7:6] \storage_3[2] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
   cell $sdffe $auto$register.cc:102:replace_ff_groups$5049
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 3'000
-    parameter \WIDTH 3
+    parameter \SRST_VALUE 4'0000
+    parameter \WIDTH 4
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$814.Y [2] $auto$alumacc.cc:485:replace_alu$814.X [0] $auto$alumacc.cc:485:replace_alu$814.Y [1] }
-    connect \EN \syncfifo1_wrport_we1
-    connect \Q { \syncfifo1_produce1 [2] \syncfifo1_produce1 [0] \syncfifo1_produce1 [1] }
+    connect \D { $auto$alumacc.cc:485:replace_alu$829.Y [3:2] $auto$alumacc.cc:485:replace_alu$829.X [0] $auto$alumacc.cc:485:replace_alu$829.Y [1] }
+    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$688
+    connect \Q { \syncfifo2_level1 [3:2] \syncfifo2_level1 [0] \syncfifo2_level1 [1] }
     connect \SRST \sys_rst
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5050
@@ -2310,71 +2314,67 @@ module \top
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data [7:2] \demux_endpoint1_source_payload_data [0] \demux_endpoint1_source_payload_data [1] }
-    connect \EN $memory\storage_5$wren[5][0][0]$y$1494
-    connect \Q { \storage_5[5] [8:2] \storage_5[5] [0] \storage_5[5] [1] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5053
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [7:5] \sink_eop_3 \sink_payload_data_3 [1] \sink_payload_data_3 [4] \sink_payload_data_3 [0] \sink_payload_data_3 [3] }
-    connect \EN $memory\storage_3$wren[1][0][0]$y$1252
-    connect \Q { \storage_3[1] [2] \storage_3[1] [7:5] \storage_3[1] [8] \storage_3[1] [1] \storage_3[1] [4] \storage_3[1] [0] \storage_3[1] [3] }
-  end
-  cell $dffe $auto$register.cc:102:replace_ff_groups$5054
-    parameter \CLK_POLARITY 1
-    parameter \EN_POLARITY 1
-    parameter \WIDTH 9
-    connect \CLK \sys_clk
-    connect \D { \sink_payload_data_1 [2] \sink_payload_data_1 [5:4] \sink_payload_data_1 [6] \sink_payload_data_1 [7] \sink_eop_1 \sink_payload_data_1 [1:0] \sink_payload_data_1 [3] }
-    connect \EN $memory\storage_1$wren[2][0][0]$y$1052
-    connect \Q { \storage_1[2] [2] \storage_1[2] [5:4] \storage_1[2] [6] \storage_1[2] [7] \storage_1[2] [8] \storage_1[2] [1:0] \storage_1[2] [3] }
+    connect \D { \sink_payload_data [2] \sink_payload_data [0] \sink_payload_data [3] \sink_payload_data [5:4] \sink_payload_data [1] \sink_payload_data [7:6] \sink_eop }
+    connect \EN $memory\storage$wren[1][0][0]$y$937
+    connect \Q { \storage[1] [2] \storage[1] [0] \storage[1] [3] \storage[1] [5:4] \storage[1] [1] \storage[1] [7:6] \storage[1] [8] }
   end
   attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5055
+  cell $sdffe $auto$register.cc:102:replace_ff_groups$5053
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \SRST_POLARITY 1
     parameter \SRST_VALUE 3'000
     parameter \WIDTH 3
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$772.Y [2:1] $auto$alumacc.cc:485:replace_alu$772.X [0] }
-    connect \EN \syncfifo0_do_read0
-    connect \Q \syncfifo0_consume0
+    connect \D { $auto$alumacc.cc:485:replace_alu$769.Y [2:1] $auto$alumacc.cc:485:replace_alu$769.X [0] }
+    connect \EN \syncfifo0_wrport_we0
+    connect \Q \syncfifo0_produce0
     connect \SRST \sys_rst
   end
-  attribute \src "stream_router.v:710.1-865.4"
-  cell $sdffe $auto$register.cc:102:replace_ff_groups$5056
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5054
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
-    parameter \SRST_POLARITY 1
-    parameter \SRST_VALUE 4'0000
-    parameter \WIDTH 4
+    parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { $auto$alumacc.cc:485:replace_alu$829.Y [3:1] $auto$alumacc.cc:485:replace_alu$829.X [0] }
-    connect \EN $auto$opt_dff.cc:220:make_patterns_logic$688
-    connect \Q \syncfifo2_level1
-    connect \SRST \sys_rst
+    connect \D { \demux_endpoint0_source_eop \demux_endpoint0_source_payload_data [7] \demux_endpoint0_source_payload_data [2] \demux_endpoint0_source_payload_data [3] \demux_endpoint0_source_payload_data [6:5] \demux_endpoint0_source_payload_data [0] \demux_endpoint0_source_payload_data [4] \demux_endpoint0_source_payload_data [1] }
+    connect \EN $memory\storage_4$wren[7][0][0]$y$1403
+    connect \Q { \storage_4[7] [8:7] \storage_4[7] [2] \storage_4[7] [3] \storage_4[7] [6:5] \storage_4[7] [0] \storage_4[7] [4] \storage_4[7] [1] }
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5055
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \demux_endpoint1_source_eop \demux_endpoint1_source_payload_data }
+    connect \EN $memory\storage_5$wren[6][0][0]$y$1502
+    connect \Q \storage_5[6]
+  end
+  cell $dffe $auto$register.cc:102:replace_ff_groups$5056
+    parameter \CLK_POLARITY 1
+    parameter \EN_POLARITY 1
+    parameter \WIDTH 9
+    connect \CLK \sys_clk
+    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [0] \sink_payload_data_2 [3] \sink_payload_data_2 [5:4] \sink_payload_data_2 [1] \sink_payload_data_2 [7] \sink_eop_2 \sink_payload_data_2 [6] }
+    connect \EN $memory\storage_2$wren[1][0][0]$y$1147
+    connect \Q { \storage_2[1] [2] \storage_2[1] [0] \storage_2[1] [3] \storage_2[1] [5:4] \storage_2[1] [1] \storage_2[1] [7] \storage_2[1] [8] \storage_2[1] [6] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5057
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data_2 [2] \sink_payload_data_2 [7:5] \sink_eop_2 \sink_payload_data_2 [1:0] \sink_payload_data_2 [3] \sink_payload_data_2 [4] }
-    connect \EN $memory\storage_2$wren[0][0][0]$y$1139
-    connect \Q { \storage_2[0] [2] \storage_2[0] [7:5] \storage_2[0] [8] \storage_2[0] [1:0] \storage_2[0] [3] \storage_2[0] [4] }
+    connect \D { \sink_payload_data_1 [6:5] \sink_payload_data_1 [3:2] \sink_payload_data_1 [0] \sink_payload_data_1 [4] \sink_payload_data_1 [1] \sink_eop_1 \sink_payload_data_1 [7] }
+    connect \EN $memory\storage_1$wren[6][0][0]$y$1082
+    connect \Q { \storage_1[6] [6:5] \storage_1[6] [3:2] \storage_1[6] [0] \storage_1[6] [4] \storage_1[6] [1] \storage_1[6] [8:7] }
   end
   cell $dffe $auto$register.cc:102:replace_ff_groups$5058
     parameter \CLK_POLARITY 1
     parameter \EN_POLARITY 1
     parameter \WIDTH 9
     connect \CLK \sys_clk
-    connect \D { \sink_payload_data [3] \sink_payload_data [4] \sink_eop \sink_payload_data [2] \sink_payload_data [7:5] \sink_payload_data [0] \sink_payload_data [1] }
-    connect \EN $memory\storage$wren[5][0][0]$y$969
-    connect \Q { \storage[5] [3] \storage[5] [4] \storage[5] [8] \storage[5] [2] \storage[5] [7:5] \storage[5] [0] \storage[5] [1] }
+    connect \D { \sink_payload_data_3 [2] \sink_payload_data_3 [0] \sink_payload_data_3 [3] \sink_payload_data_3 [5:4] \sink_payload_data_3 [1] \sink_payload_data_3 [6] \sink_payload_data_3 [7] \sink_eop_3 }
+    connect \EN $memory\storage_3$wren[1][0][0]$y$1252
+    connect \Q { \storage_3[1] [2] \storage_3[1] [0] \storage_3[1] [3] \storage_3[1] [5:4] \storage_3[1] [1] \storage_3[1] [6] \storage_3[1] [7] \storage_3[1] [8] }
   end
   attribute \src "stream_router.v:370.41-370.65"
   cell $_OR_ $auto$simplemap.cc:126:simplemap_reduce$2004
