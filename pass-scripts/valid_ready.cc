@@ -570,6 +570,16 @@ struct ValidReadyPass : public Pass {
                 log("\n");
             }
 
+            /*
+                Run passes to pruify the handshake results
+                1. Check that the valid/ready bits are separable
+                2. Find FFs that belong to the same group by:
+                    - Check against FF groups that have multiple point of contacts
+                3. Remove different valid/ready pairs that share the same backing flip flops using (2)
+                4. Classify flip flops as the same group using the reuslt of (2)
+                5. Finally, deduplicate handshakes with identical control bits
+            */
+
             // Check if the ready bits and valid bits are functionally separable
             std::set<Handshake> cross_influenced_handshake;
             for (const auto& [eligible_pair, _data_components]: eligible_ctrl_bit_pairs) {
@@ -749,6 +759,54 @@ struct ValidReadyPass : public Pass {
 
         log("Eligible ctrl bit pairs: %ld\n", eligible_ctrl_bit_pairs.size());
 
+        // Repopulate eligible pairs by de-duplication of handshakes with the same control bits
+        {
+            std::map<HandshakeBits, std::set<std::pair<Handshake, std::set<std::pair<RTLIL::Cell*, int>>>>> handshake_bits_collection;
+            for (const auto& [handshake, data_components]: eligible_ctrl_bit_pairs) {
+                HandshakeBits handshake_bits(handshake);
+                if (handshake_bits_collection.count(handshake_bits)) {
+                    handshake_bits_collection[handshake_bits].insert(
+                        {handshake, data_components}
+                    );
+                } else {
+                    handshake_bits_collection.insert({
+                        handshake_bits, {{handshake, data_components}}
+                    });
+                }
+            }
+
+            // If any handshake bits pair maps to multiple handshakes,
+            // remove these handshakes from the set and re-insert the union
+            // std::map<Handshake, std::set<std::pair<RTLIL::Cell*, int>>> handshake_buffer;
+            for (const auto& [handshake_bits, handshake_info_set]: handshake_bits_collection) {
+                auto [ctrl0, ctrl1] = handshake_bits.decompose();
+                if (handshake_info_set.size() > 1) {
+                    // Backing FF union
+                    std::set<RTLIL::Cell*> backing_ffs0;
+                    std::set<RTLIL::Cell*> backing_ffs1;
+                    std::set<std::pair<RTLIL::Cell*, int>> data_union;
+                    for (const auto& [handshake, data_components]: handshake_info_set) {
+                        std::set<RTLIL::Cell*> ctrl0_backing = handshake.get_backing_ffs(ctrl0);
+                        std::set<RTLIL::Cell*> ctrl1_backing = handshake.get_backing_ffs(ctrl1);
+
+                        backing_ffs0.insert(ctrl0_backing.begin(), ctrl0_backing.end());
+                        backing_ffs1.insert(ctrl1_backing.begin(), ctrl1_backing.end());
+                        data_union.insert(data_components.begin(), data_components.end());
+                    }
+
+                    // Remove original handshake info, repopulate with the union
+                    Handshake handshake_pair(
+                        ctrl0, backing_ffs0, ctrl1, backing_ffs1
+                    );
+
+                    for (const auto& [handshake, _data_components]: handshake_info_set) {
+                        eligible_ctrl_bit_pairs.erase(handshake);
+                    }
+                    eligible_ctrl_bit_pairs.insert({handshake_pair, data_union});
+                }
+            }
+        }
+
         std::set<RTLIL::Cell*> global_data_interfaces;
         std::set<RTLIL::Cell*> experimental_data_ifs;
         std::set<RTLIL::Cell*> experimental_data_ends;
@@ -777,6 +835,22 @@ struct ValidReadyPass : public Pass {
                 log("%s\n", log_id(dffe_sink));
             }
             log("\n");
+        }
+
+        {
+            std::stringstream ss;
+            ss << "select -set handshake_bits ";
+
+            for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
+                auto [handshake_src, handshake_sink] = eligible_pair.decompose();
+                auto [eligible_src, dffe_srcs] = handshake_src;
+                auto [eligible_sink, dffe_sinks] = handshake_sink;
+
+                ss << "c:" << std::get<0>(eligible_src)->name.c_str() << " ";
+                ss << "c:" << std::get<0>(eligible_sink)->name.c_str() << " ";
+            }
+
+            Pass::call(design, ss.str().c_str());
         }
 
         if (!PASS_DECOMP) {

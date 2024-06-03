@@ -181,6 +181,22 @@ struct Handshake {
         return {};
     }
 
+    std::set<RTLIL::Cell*> get_backing_ffs(
+        CellPin ctrl_pin
+    ) const {
+        auto [if0, if1] = this->decompose();
+        auto [ctrl0, ffs0] = if0;
+        auto [ctrl1, ffs1] = if1;
+        if (ctrl0 == ctrl_pin) {
+            return ffs0;
+        } else if (ctrl1 == ctrl_pin) {
+            return ffs1;
+        }
+
+        log_error("Attempted to find the backing FFs of control pins not part the handshake\n");
+        return {};
+    }
+
     bool operator ==(const Handshake& other) const {
         return this->info == other.info;
     }
@@ -247,6 +263,33 @@ struct ConnectedModules {
         std::set<RTLIL::Cell*> dff1 = *inner_it;
 
         return {dff0, dff1};
+    }
+};
+
+
+struct HandshakeBits {
+    std::set<CellPin> inner;
+
+    HandshakeBits() = delete;
+
+    HandshakeBits(const Handshake& handshake) {
+        auto [if0, if1] = handshake.decompose();
+        CellPin ctrl0 = std::get<0>(if0);
+        CellPin ctrl1 = std::get<0>(if1);
+        this->inner = {ctrl0, ctrl1};
+    }
+
+    std::pair<CellPin, CellPin> decompose() const {
+        auto inner_it = this->inner.begin();
+        CellPin ctrl0 = *inner_it;
+        std::advance(inner_it, 1);
+        CellPin ctrl1 = *inner_it;
+
+        return {ctrl0, ctrl1};
+    }
+
+    bool operator <(const HandshakeBits& other) const {
+        return this->inner < other.inner;
     }
 };
 
