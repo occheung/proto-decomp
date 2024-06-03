@@ -462,7 +462,7 @@ struct ValidReadyPass : public Pass {
                                         if (!circuit_graph.get_intermediate_comb_cells(
                                             src, {mux, "\\S", 0}
                                         ).empty()) {
-                                            log("DFFE reaches MUX %s\n", log_id(mux));
+                                            LOG("DFFE reaches MUX %s\n", log_id(mux));
                                             dependent_data_components.insert({mux, 0});
 
                                             if (src_depth + sink_depth >= joint_depth) {
