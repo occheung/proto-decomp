@@ -354,14 +354,13 @@ struct ValidReadyPass : public Pass {
                                     other_ctrl_bit, opposite_half_path_set,
                                     opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
 
-                                log("Cell %s Port %s reaches Cell %s CE\n",
+                                LOG("Cell %s Port %s reaches Cell %s CE\n",
                                     std::get<0>(ctrl_bit)->name.c_str(),
                                     std::get<1>(ctrl_bit).c_str(),
                                     log_id(data_reg));
-                                log("Other ctrl pin: Cell %s; Port %s\n",
+                                LOG("Other ctrl pin: Cell %s; Port %s\n",
                                     std::get<0>(other_ctrl_bit)->name.c_str(),
-                                    std::get<1>(other_ctrl_bit).c_str()
-                                );
+                                    std::get<1>(other_ctrl_bit).c_str());
 
                                 // Record data element regardless of priority
                                 // Give direct DFFE priority 3
@@ -429,11 +428,11 @@ struct ValidReadyPass : public Pass {
                                 other_ctrl_bit, {inter_dff, "\\EN", 0});
                             
                             if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
-                                log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                LOG("Cell %s Port %s reaches intermediate DFFE %s CE\n",
                                     std::get<0>(ctrl_bit)->name.c_str(),
                                     std::get<1>(ctrl_bit).c_str(),
                                     log_id(inter_dff));
-                                log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                LOG("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
                                     std::get<0>(other_ctrl_bit)->name.c_str(),
                                     std::get<1>(other_ctrl_bit).c_str(),
                                     log_id(inter_dff));
@@ -517,20 +516,30 @@ struct ValidReadyPass : public Pass {
                                 }
                             }
                         }
+
+                        Handshake eligible_pair(
+                            src_first_divergence_opt,
+                            source_fsm_ffs,
+                            sink_first_divergence_opt,
+                            sink_fsm_ffs
+                        );
+
                         if (joint_depth != std::numeric_limits<int>::max()) {
-                            Handshake eligible_pair(
-                                src_first_divergence_opt,
-                                source_fsm_ffs,
-                                sink_first_divergence_opt,
-                                sink_fsm_ffs
-                            );
                             eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
                             cut_edges[eligible_pair] = edges_to_be_cut_opt;
                         }
 
                         // DEBUG
                         if (joint_depth != std::numeric_limits<int>::max()) {
-                            log("A handshake candidate is found, handshake buffer size: %ld\n\n\n", eligible_ctrl_bit_pairs.size());
+                            log("A handshake candidate is found, handshake buffer size: %ld\n", eligible_ctrl_bit_pairs.size());
+                            for (RTLIL::Cell* source_ff: source_fsm_ffs) {
+                                log("Source FF %s\n", log_id(source_ff));
+                            }
+                            for (RTLIL::Cell* sink_ff: sink_fsm_ffs) {
+                                log("Sink FF %s\n", log_id(sink_ff));
+                            }
+                            log("Has %ld data components\n", dependent_data_components.size());
+                            log("\n\n");
                         }
                     }
                 }
