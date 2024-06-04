@@ -61,7 +61,7 @@ struct ValidReadyPass : public Pass {
                     if (!ff_data.has_ce) {
                         // Check for a path from Q pin to D pin
                         for (int i = 0; i < GetSize(ff_data.sig_q); ++i) {
-                            for (int j = 0; i < GetSize(ff_data.sig_d); ++j) {
+                            for (int j = 0; j < GetSize(ff_data.sig_d); ++j) {
                                 if (!circuit_graph.get_intermediate_comb_cells(
                                     {cell, "\\Q", i},
                                     {cell, "\\D", j}
@@ -912,6 +912,7 @@ struct ValidReadyPass : public Pass {
                         frontier.erase(cell);
                     }
                     frontier.insert(new_frontier.begin(), new_frontier.end());
+                    new_frontier.clear();
 
                     for (std::shared_ptr<DataElement> frontier_src: frontier) {
                         for (std::shared_ptr<DataElement> frontier_sink: frontier) {
@@ -923,12 +924,20 @@ struct ValidReadyPass : public Pass {
                                 removed_frontier.insert(frontier_src);
                                 for (std::shared_ptr<DataElement> next: frontier_src->sink) {
                                     if (subgraph_nodes.count(next)) {
-                                        new_frontier.insert(frontier_src);
+                                        new_frontier.insert(next);
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Do not propagate to removed frontier
+                    for (std::shared_ptr<DataElement> removed_node: removed_frontier) {
+                        new_frontier.erase(removed_node);
+                    }
+                    log("Frontier size: %ld\n", frontier.size());
+                    log("New frontier size: %ld\n", new_frontier.size());
+                    log("Removed frontier size: %ld\n", removed_frontier.size());
                 } while (!new_frontier.empty());
 
                 // No new data elements to be added
