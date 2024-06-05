@@ -304,10 +304,10 @@ struct ValidReadyPass : public Pass {
                     log("%s\n", log_id(sink_ff));
                 }
                 for (const CellPin& ctrl_bit: primary_outputs) {
-                    log("Primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
+                    log("From primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
                 }
                 for (const CellPin& ctrl_bit: opposite_primary_outputs) {
-                    log("Primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
+                    log("To primary output: %s:%s\n", log_id(std::get<0>(ctrl_bit)), log_id(std::get<1>(ctrl_bit)));
                 }
 
                 for (const CellPin& ctrl_bit: primary_outputs) {
