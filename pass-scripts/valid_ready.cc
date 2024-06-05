@@ -517,20 +517,17 @@ struct ValidReadyPass : public Pass {
                             }
                         }
 
-                        Handshake eligible_pair(
-                            src_first_divergence_opt,
-                            source_fsm_ffs,
-                            sink_first_divergence_opt,
-                            sink_fsm_ffs
-                        );
-
                         if (joint_depth != std::numeric_limits<int>::max()) {
+                            Handshake eligible_pair(
+                                src_first_divergence_opt,
+                                source_fsm_ffs,
+                                sink_first_divergence_opt,
+                                sink_fsm_ffs
+                            );
+
                             eligible_ctrl_bit_pairs[eligible_pair] = dependent_data_components;
                             cut_edges[eligible_pair] = edges_to_be_cut_opt;
-                        }
 
-                        // DEBUG
-                        if (joint_depth != std::numeric_limits<int>::max()) {
                             log("A handshake candidate is found, handshake buffer size: %ld\n", eligible_ctrl_bit_pairs.size());
                             for (RTLIL::Cell* source_ff: source_fsm_ffs) {
                                 log("Source FF %s\n", log_id(source_ff));
