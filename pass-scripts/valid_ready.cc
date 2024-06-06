@@ -808,7 +808,6 @@ struct ValidReadyPass : public Pass {
         std::set<RTLIL::Cell*> experimental_data_ifs;
         std::set<RTLIL::Cell*> experimental_data_ends;
 
-        std::map<Handshake, std::set<CellPin>> module_interfaces;
         std::map<Handshake, std::set<Wire>> module_data_interfaces;
 
         log("New handshake count: %ld\n", eligible_ctrl_bit_pairs.size());
@@ -854,19 +853,76 @@ struct ValidReadyPass : public Pass {
             return;
         }
 
-        for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
-            // TODO: Create a subgraph that includes all data components
-            // that depends on the corresponding handshake bits
-            std::set<std::shared_ptr<DataElement>> data_subgraph;
-            {
-                // Ignore priority
-                std::set<RTLIL::Cell*> data_cells;
-                for (auto [cell, priority]: data_components) {
-                    data_cells.insert(cell);
+        // Perform data components appearance counting
+        std::map<RTLIL::Cell*, std::set<Handshake>> appearance_counter;
+        for (const auto& [handshake, data_components]: eligible_ctrl_bit_pairs) {
+            for (auto [data_cell, _priority]: data_components) {
+                if (appearance_counter.count(data_cell) == 0) {
+                    appearance_counter.insert({data_cell, {}});
                 }
-                data_subgraph = data_path.get_subgraph(data_cells);
+                appearance_counter[data_cell].insert(handshake);
             }
-            log("Found datapath subgraph\n");
+        }
+
+        // Create a provisional subgraph for every handshake entry
+        // using the least appeared elements
+        std::map<Handshake, std::set<std::shared_ptr<DataElement>>> provisional_subgraphs;
+
+        auto get_provisional_subgraph = [&](
+            const Handshake& curr_handshake
+        ) {
+            const std::set<std::pair<RTLIL::Cell*, int>>& data_components = eligible_ctrl_bit_pairs.at(curr_handshake);
+            int least_frequency = std::numeric_limits<int>::max();
+            std::set<RTLIL::Cell*> least_appeared_elements;
+            for (auto [cell, _priority]: data_components) {
+                int frequency = appearance_counter.at(cell).size();
+                if (frequency < least_frequency) {
+                    least_frequency = frequency;
+                    least_appeared_elements.clear();
+                }
+
+                if (frequency == least_frequency) {
+                    least_appeared_elements.insert(cell);
+                }
+            }
+            return data_path.get_subgraph(least_appeared_elements);
+        };
+
+        for (const auto& [handshake, _data_components]: eligible_ctrl_bit_pairs) {
+            provisional_subgraphs[handshake] = {};
+        }
+
+        // Resolve all subgraphs
+        do {
+            for (auto& [handshake, provisional_subgraph]: provisional_subgraphs) {
+                provisional_subgraph = get_provisional_subgraph(handshake);
+            }
+
+            // Start from the smallest subgraph
+            Handshake simplest_handshake = std::get<0>(*provisional_subgraphs.begin());
+            std::set<std::shared_ptr<DataElement>> smallest_subgraph = std::get<1>(*provisional_subgraphs.begin());
+
+            int least_subgraph_size = 0;
+            for (const std::shared_ptr<DataElement>& data_elm: smallest_subgraph) {
+                least_subgraph_size += data_elm->subgraph_nodes.size();
+            }
+
+            for (const auto& [handshake, subgraph]: provisional_subgraphs) {
+                int subgraph_size = 0;
+                for (const std::shared_ptr<DataElement>& data_elm: subgraph) {
+                    subgraph_size += data_elm->subgraph_nodes.size();
+                }
+
+                if (subgraph_size < least_subgraph_size) {
+                    least_subgraph_size = subgraph_size;
+                    simplest_handshake = handshake;
+                    smallest_subgraph = subgraph;
+                }
+            }
+
+            // Guess the data interface
+            log("Examine new handshake:\n");
+            simplest_handshake.write_log();
             auto get_datapath_input = [&](
                 const std::set<std::shared_ptr<DataElement>>& subgraph_nodes
             ){
@@ -877,7 +933,7 @@ struct ValidReadyPass : public Pass {
                     bool node_has_extern_input = false;
                     bool node_has_predecessor = !(node->source.empty());
                     for (std::shared_ptr<DataElement> prev: node->source) {
-                        if (data_subgraph.count(prev) == 0) {
+                        if (smallest_subgraph.count(prev) == 0) {
                             node_has_extern_input = true;
                         }
                     }
@@ -890,8 +946,21 @@ struct ValidReadyPass : public Pass {
                 return inputs;
             };
 
-            std::set<std::shared_ptr<DataElement>> data_subgraph_input_raw = get_datapath_input(data_subgraph);
-            log("Got datapath input\n");
+            // {
+            //     std::stringstream ss;
+            //     ss << "select -set data_subgraph_example ";
+
+            //     for (std::shared_ptr<DataElement> data_comp: data_subgraph) {
+            //         for (RTLIL::Cell* data_cell: data_comp->subgraph_nodes) {
+            //             ss << "c:" << data_cell->name.c_str() << " ";
+            //         }
+            //     }
+
+            //     Pass::call(design, ss.str().c_str());
+            // }
+
+            std::set<std::shared_ptr<DataElement>> data_subgraph_input_raw = get_datapath_input(smallest_subgraph);
+            log("Got %ld datapath inputs\n", data_subgraph_input_raw.size());
 
             // Replace inputs with successors, until all inputs are not successors or predecessors
             auto promote_inputs = [&](
@@ -932,9 +1001,6 @@ struct ValidReadyPass : public Pass {
                     for (std::shared_ptr<DataElement> removed_node: removed_frontier) {
                         new_frontier.erase(removed_node);
                     }
-                    log("Frontier size: %ld\n", frontier.size());
-                    log("New frontier size: %ld\n", new_frontier.size());
-                    log("Removed frontier size: %ld\n", removed_frontier.size());
                 } while (!new_frontier.empty());
 
                 // No new data elements to be added
@@ -947,25 +1013,7 @@ struct ValidReadyPass : public Pass {
             };
 
             std::set<std::shared_ptr<DataElement>> data_subgraph_input = promote_inputs(
-                data_subgraph, data_subgraph_input_raw);
-            
-            log("Data cell:\n");
-            // Log interface
-            for (std::shared_ptr<DataElement> input_cell: data_subgraph_input) {
-                if (input_cell->subgraph_nodes.size() == 1) {
-                    auto subgraph_it = input_cell->subgraph_nodes.begin();
-                    experimental_data_ifs.insert(*subgraph_it);
-                    log("Interface: %s\n", log_id(*subgraph_it));
-                } else {
-                    // Find the DFF
-                    for (RTLIL::Cell* subgraph_cell: input_cell->subgraph_nodes) {
-                        if (RTLIL::builtin_ff_cell_types().count(subgraph_cell->type)) {
-                            experimental_data_ifs.insert(subgraph_cell);
-                            log("Interface: %s\n", log_id(subgraph_cell));
-                        }
-                    }
-                }
-            }
+                smallest_subgraph, data_subgraph_input_raw);
 
             std::set<Wire> data_cut_if = data_path.get_intersection_wires(data_subgraph_input);
             log("Data interface: \n");
@@ -973,82 +1021,36 @@ struct ValidReadyPass : public Pass {
                 auto [from_cell, from_port, from_idx] = from_pin;
                 auto [to_cell, to_port, to_idx] = to_pin;
                 experimental_data_ends.insert(from_cell);
-                log("%s:%s:%d -> %s:%s:%d\n\n",
+                log("%s:%s:%d -> %s:%s:%d\n",
                     log_id(from_cell), from_port.c_str(), from_idx,
                     log_id(to_cell), to_port.c_str(), to_idx);
             }
-            module_data_interfaces[eligible_pair] = data_cut_if;
+            module_data_interfaces[simplest_handshake] = data_cut_if;
 
-            // for (const auto& [data_component, depth]: data_components) {
-            //     log("Data component: %s\n", log_id(data_component));
-            //     log("Depth: %d\n", depth);
-            // }
-            // log("Recorded %ld cells in total\n", data_components.size());
+            // Remove the processed handshake
+            provisional_subgraphs.erase(simplest_handshake);
 
-            // Approximate the data interface by tracing the data components backward
-            // Perferentially use data components with lower latency
-            int highest_priority = 0;
-            std::set<RTLIL::Cell*> data_component_highest_priority;
-            for (const auto& [data_component, priority]: data_components) {
-                if (priority > highest_priority) {
-                    highest_priority = priority;
-                    data_component_highest_priority = {};
-                }
-                if (priority == highest_priority) {
-                    data_component_highest_priority.insert(data_component);
-                }
-            }
-            // log("%ld cells has the highest priority\n", data_component_highest_priority.size());
+            // Remove nodes that are successor to the guessed interface from the possible data components
+            // This includes the interfacing nodes themselves
+            for (auto& [handshake, data_components]: eligible_ctrl_bit_pairs) {
+                std::set<RTLIL::Cell*> successor_graph = data_path.get_subgraph_successor_cells(
+                    smallest_subgraph, data_cut_if
+                );
 
-            std::set<CellPin> data_sources;
-            // Convert all RTLIL::Cell the data line representation
-            for (RTLIL::Cell* ctrl_cell: data_component_highest_priority) {
-                if (RTLIL::builtin_ff_cell_types().count(ctrl_cell->type)) {
-                    FfData ctrl_data(&ff_init_vals, ctrl_cell);
-                    if (ctrl_data.has_ce) {
-                        for (int i = 0; i < GetSize(ctrl_data.sig_d); ++i) {
-                            Source src = circuit_graph.source_map.at(ctrl_cell).at("\\D").at(i);
-                            if (std::holds_alternative<CellPin>(src)) {
-                                data_sources.insert(std::get<CellPin>(src));
-                            }
-                        }
-                    } else {
-                        log_error("Found a ctrl pin that isn't properly CE from cell %s\n", log_id(ctrl_cell));
+                for (RTLIL::Cell* used_successor: successor_graph) {
+                    // TODO: Get rid of the priority system
+                    // We hack by erasing all possible priority for now.
+                    for (int i = 0; i < 4; ++i) {
+                        data_components.erase({used_successor, i});
                     }
-                } else if (ctrl_cell->type.in(ID($_MUX_))) {
-                    // Put the output of the MUX tree into the sources
-                    // Therefore, ignore any MUXes that feeds into another MUX in the most prioritized sources
-                    vector<Sink> ctrl_data_sinks = circuit_graph.sink_map.at(ctrl_cell).at("\\Y").at(0);
-                    bool chained_mux = false;
-                    for (const Sink& data_sink: ctrl_data_sinks) {
-                        if (std::holds_alternative<RTLIL::SigBit>(data_sink)) {
-                            continue;
-                        }
-
-                        auto [data_sink_cell, data_sink_port, data_sink_pin_idx] = std::get<CellPin>(data_sink);
-                        if (data_component_highest_priority.count(data_sink_cell) && data_sink_cell->type.in(ID($_MUX_))) {
-                            chained_mux = true;
-                            break;
-                        }
-                    }
-
-                    if (!chained_mux) {
-                        data_sources.insert({ctrl_cell, "\\Y", 0});
-                    }
-                } else {
-                    log_error("Found control cell that is neither a DFF nor a MUX\n");
                 }
             }
 
-            log("Found data interfaces at priority %d:\n", highest_priority);
-            for (auto & [data_cell, data_port, data_pin_idx]: data_sources) {
-                global_data_interfaces.insert(data_cell);
-                log("%s:%s:%d\n", log_id(data_cell), data_port.c_str(), data_pin_idx);
+            // Update element counter
+            for (auto& [data_cell, collection]: appearance_counter) {
+                collection.erase(simplest_handshake);
             }
-            log("\n\n");
-
-            module_interfaces[eligible_pair] = data_sources;
-        }
+        } while (!provisional_subgraphs.empty());
 
         // Prune interfaces that are self-overlapping
         // Idea: If the FFs belong to the same module interface, it should conclude
