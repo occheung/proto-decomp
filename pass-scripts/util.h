@@ -197,6 +197,22 @@ struct Handshake {
         return {};
     }
 
+    CellPin get_opposite_ctrl(
+        CellPin ctrl_pin
+    ) const {
+        auto [if0, if1] = this->decompose();
+        auto [ctrl0, _ffs0] = if0;
+        auto [ctrl1, _ffs1] = if1;
+        if (ctrl0 == ctrl_pin) {
+            return ctrl1;
+        } else if (ctrl1 == ctrl_pin) {
+            return ctrl0;
+        }
+
+        log_error("Attempted to find the opposite control pins that is not part the handshake\n");
+        return {};
+    }
+
     bool operator ==(const Handshake& other) const {
         return this->info == other.info;
     }
@@ -228,6 +244,50 @@ struct Handshake {
             }
         }
         return false;
+    }
+
+    void write_log() const {
+        auto [handshake_src, handshake_sink] = this->decompose();
+        auto [eligible_src, dffe_srcs] = handshake_src;
+        auto [eligible_sink, dffe_sinks] = handshake_sink;
+
+        log("Ctrl src: Cell %s Port %s\n",
+            std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str()
+        );
+        log("Src FFs:\n");
+        for (RTLIL::Cell* dffe_src: dffe_srcs) {
+            log("%s\n", log_id(dffe_src));
+        }
+        log("Ctrl sink: Cell %s Port %s\n",
+            std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str()
+        );
+        log("Sink FFs:\n");
+        for (RTLIL::Cell* dffe_sink: dffe_sinks) {
+            log("%s\n", log_id(dffe_sink));
+        }
+        log("\n");
+    }
+
+    void write_ctrl_pins() const {
+        auto [handshake_src, handshake_sink] = this->decompose();
+        auto [eligible_src, _dffe_srcs] = handshake_src;
+        auto [eligible_sink, _dffe_sinks] = handshake_sink;
+
+        log("Ctrl src: Cell %s Port %s\n",
+            std::get<0>(eligible_src)->name.c_str(), std::get<1>(eligible_src).c_str()
+        );
+        // log("Src FFs:\n");
+        // for (RTLIL::Cell* dffe_src: dffe_srcs) {
+        //     log("%s\n", log_id(dffe_src));
+        // }
+        log("Ctrl sink: Cell %s Port %s\n",
+            std::get<0>(eligible_sink)->name.c_str(), std::get<1>(eligible_sink).c_str()
+        );
+        // log("Sink FFs:\n");
+        // for (RTLIL::Cell* dffe_sink: dffe_sinks) {
+        //     log("%s\n", log_id(dffe_sink));
+        // }
+        // log("\n");
     }
 };
 
@@ -290,6 +350,274 @@ struct HandshakeBits {
 
     bool operator <(const HandshakeBits& other) const {
         return this->inner < other.inner;
+    }
+};
+
+
+struct PseudoModule {
+    std::set<std::pair<Handshake, CellPin>> inputs;
+    std::set<std::pair<Handshake, CellPin>> outputs;
+
+    PseudoModule() = default;
+
+    bool operator <(const PseudoModule& other) const {
+        if (this->inputs != other.inputs) {
+            return this->inputs < other.inputs;
+        } else if (this->outputs != other.outputs) {
+            return this->outputs < other.outputs;
+        } else {
+            return false;
+        }
+    }
+
+    bool operator ==(const PseudoModule& other) const {
+        return (this->inputs == other.inputs) && (this->outputs == other.outputs);
+    }
+
+    std::shared_ptr<PseudoModule> coalesce(
+        const PseudoModule& other
+    ) const {
+        // Modules can be coalesced together if they share some of the
+        // same handshake pin at the same input interface
+        //
+        // Note: We can apply the same condition to the output theoretically.
+        // However, this possibility hsould be ruled out by construction.
+        bool has_common_ctrl = false;
+        for (const auto& [in_handshake, in_pin]: this->inputs) {
+            for (const auto& [other_in_handshake, other_in_pin]: other.inputs) {
+                if ((in_handshake == other_in_handshake) && (in_pin == other_in_pin)) {
+                    has_common_ctrl = true;
+                }
+            }
+        }
+
+        if (has_common_ctrl) {
+            std::shared_ptr<PseudoModule> module_union = std::make_shared<PseudoModule>();
+            module_union->inputs.insert(this->inputs.begin(), this->inputs.end());
+            module_union->inputs.insert(other.inputs.begin(), other.inputs.end());
+            module_union->outputs.insert(this->outputs.begin(), this->outputs.end());
+            module_union->outputs.insert(other.outputs.begin(), other.outputs.end());
+
+            return module_union;
+        } else {
+            return nullptr;
+        }
+    }
+
+    void write_log() const {
+        log("Inputs:\n");
+        for (const auto& [_handshake, ctrl_pin]: this->inputs) {
+            auto [cell, port, idx] = ctrl_pin;
+            log("%s:%s:%d\n", log_id(cell), log_id(port), idx);
+        }
+        log("Outputs:\n");
+        for (const auto& [_handshake, ctrl_pin]: this->outputs) {
+            auto [cell, port, idx] = ctrl_pin;
+            log("%s:%s:%d\n", log_id(cell), log_id(port), idx);
+        }
+    }
+};
+
+
+struct PseudoModuleCollection {
+    std::set<std::shared_ptr<PseudoModule>> inner;
+
+    PseudoModuleCollection() = delete;
+    PseudoModuleCollection(
+        const std::map<std::pair<Handshake, CellPin>, std::set<std::pair<Handshake, CellPin>>>& connectivity_graph
+    ) {
+        for (const auto& [sink, srcs]: connectivity_graph) {
+            // Register modules first
+            std::shared_ptr<PseudoModule> module_ptr = std::make_shared<PseudoModule>();
+            module_ptr->inputs = srcs;
+            module_ptr->outputs = {sink};
+
+            this->inner.insert(module_ptr);
+        }
+
+        // Coalesce modules
+        std::set<std::shared_ptr<PseudoModule>> work_list = this->inner;
+
+        while (!work_list.empty()) {
+            std::shared_ptr<PseudoModule> curr = *work_list.begin();
+            work_list.erase(curr);
+
+            bool can_coalesce = false;
+            std::pair<
+                std::shared_ptr<PseudoModule>,
+                std::shared_ptr<PseudoModule>
+            > replacement = {nullptr, nullptr};
+
+            for (std::shared_ptr<PseudoModule> owned_module: this->inner) {
+                if (*owned_module == *curr) {
+                    continue;
+                }
+
+                std::shared_ptr<PseudoModule> module_union = curr->coalesce(*owned_module);
+                if (module_union) {
+                    // Pending for removal
+                    can_coalesce = true;
+                    replacement = {owned_module, module_union};
+                    break;
+                }
+            }
+
+            if (can_coalesce) {
+                // Remove the 2 old modules, and insert the new
+                // Remove/insert on both the owned set and the work list
+                auto [old_module, new_module] = replacement;
+
+                work_list.erase(old_module);
+                this->inner.erase(old_module);
+                this->inner.erase(curr);
+
+                work_list.insert(new_module);
+                this->inner.insert(new_module);
+            }
+        }
+    }
+
+    void write_log() const {
+        log("Found %ld module\n\n", this->inner.size());
+        for (std::shared_ptr<PseudoModule> module: this->inner) {
+            log("Begin module\n");
+            module->write_log();
+            log("\n");
+        }
+    }
+};
+
+
+struct VrModule {
+    std::set<std::pair<Handshake, CellPin>> ctrl_inputs;
+    std::set<std::pair<Handshake, CellPin>> ctrl_outputs;
+
+    std::set<Handshake> uncategorized_handshakes;
+
+    std::set<std::pair<Handshake, std::set<Wire>>> data_inputs;
+    std::set<std::pair<Handshake, std::set<Wire>>> data_outputs;
+
+    VrModule() = delete;
+    VrModule(
+        std::shared_ptr<PseudoModule> pseudo_module,
+        const std::map<Handshake, std::set<Wire>>& data_ifs,
+        const CircuitGraph& circuit_graph
+    ) {
+        // Collect all the handshakes
+        std::set<Handshake> handshakes;
+        for (const auto& [handshake, _in_pin]: pseudo_module->inputs) {
+            handshakes.insert(handshake);
+        }
+
+        // Verify module integrity:
+        // Handshakes featured as inputs should also feature as outputs
+        {
+            std::set<Handshake> check_handshakes;
+            for (const auto& [handshake, _out_pin]: pseudo_module->outputs) {
+                check_handshakes.insert(handshake);
+            }
+
+            if (check_handshakes != handshakes) {
+                log("Module with issue:\n");
+                pseudo_module->write_log();
+                log_error("Found handshake entries discrepencies in a pesudo module.\n");
+            }
+        }
+
+        this->ctrl_inputs = pseudo_module->inputs;
+        this->ctrl_outputs = pseudo_module->outputs;
+        this->uncategorized_handshakes = handshakes;
+
+        // Attempt to populate data direction
+        std::set<Handshake> output_handshakes;
+        std::set<Handshake> source_handshakes;
+        for (const Handshake& handshake: this->uncategorized_handshakes) {
+            for (const Handshake& other_handshake: this->uncategorized_handshakes) {
+                if (handshake == other_handshake) {
+                    continue;
+                }
+
+                std::set<CellPin> data_srcs;
+                std::set<CellPin> other_data_srcs;
+                for (auto [wire_src, _wire_sink]: data_ifs.at(handshake)) {
+                    data_srcs.insert(wire_src);
+                }
+                for (auto [wire_src, _wire_sink]: data_ifs.at(other_handshake)) {
+                    other_data_srcs.insert(wire_src);
+                }
+
+                if (circuit_graph.reachable(
+                    data_srcs, other_data_srcs
+                )) {
+                    // Other handshake data depends on this handshake data
+                    // Hence, other handshake is an output handshake
+                    output_handshakes.insert(other_handshake);
+                    this->data_outputs.insert({other_handshake, data_ifs.at(other_handshake)});
+
+                    // The source handshake is recorded
+                    // Note that it does NOT imply the said handshake is an input
+                    // Outputs depending on outputs is completely legal
+                    source_handshakes.insert(handshake);
+                }
+            }
+        }
+
+        // If any handshake had been categorized, we assume the remaining source handshakes are inputs
+        if (!output_handshakes.empty()) {
+            for (const Handshake& src: source_handshakes) {
+                if (output_handshakes.count(src) == 0) {
+                    this->data_inputs.insert({src, data_ifs.at(src)});
+                }
+            }
+
+            // Update uncategorized handshakes
+            for (const Handshake& src: source_handshakes) {
+                this->uncategorized_handshakes.erase(src);
+            }
+
+            for (const Handshake& output: output_handshakes) {
+                this->uncategorized_handshakes.erase(output);
+            }
+        }
+    }
+};
+
+struct VrModuleCollection {
+    std::vector<VrModule> inner;
+
+    VrModuleCollection(
+        const PseudoModuleCollection& pseudo_modules,
+        const std::map<Handshake, std::set<Wire>>& data_ifs,
+        const CircuitGraph& circuit_graph
+    ) {
+        // Transfer modules
+        std::set<Handshake> ingress_handshakes;
+        std::set<Handshake> egress_handshakes;
+        for (std::shared_ptr<PseudoModule> module: pseudo_modules.inner) {
+            VrModule vr_module(module, data_ifs, circuit_graph);
+            for (const auto& [handshake, _in_data_if]: vr_module.data_inputs) {
+                ingress_handshakes.insert(handshake);
+            }
+            for (const auto& [handshake, _out_data_if]: vr_module.data_outputs) {
+                egress_handshakes.insert(handshake);
+            }
+            this->inner.push_back(vr_module);
+        }
+
+        // Spread direction info
+        for (VrModule& vr_module: this->inner) {
+            for (Handshake handshake: vr_module.uncategorized_handshakes) {
+                if (ingress_handshakes.count(handshake)) {
+                    vr_module.data_outputs.insert({handshake, data_ifs.at(handshake)});
+                } else if (egress_handshakes.count(handshake)) {
+                    vr_module.data_inputs.insert({handshake, data_ifs.at(handshake)});
+                } else {
+                    log_error("Handshake direction completely unknown\n");
+                }
+            }
+
+            vr_module.uncategorized_handshakes.clear();
+        }
     }
 };
 
