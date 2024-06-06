@@ -1078,533 +1078,250 @@ struct ValidReadyPass : public Pass {
 
             Pass::call(design, ss_end.str().c_str());
         }
+
+
         // Pass::call(design, "show -color red @data_comp");
 
-        // Directed graph. Each edge states key can reach value eventually
-        std::map<Handshake, std::set<Handshake>> reachability_map;
-        // Inverted reachability graph
-        std::map<Handshake, std::set<Handshake>> inverted_reachability_map;
+        // TODO: Establish connectivity with an undirected graph
+        // We establish the directionality later
+        std::map<Handshake, std::set<Handshake>> connectivity_graph;
+        std::map<std::pair<Handshake, CellPin>, std::set<std::pair<Handshake, CellPin>>> ctrl_pin_connectivity;
 
-        for (const auto& [src_pair, wire_interface]: module_data_interfaces) {
-            for (const auto& [other_pair, other_wire_if]: module_data_interfaces) {
-                // if (src_pair == other_pair) {
-                //     continue;
-                // }
+        {
+            // 1. Collect all roadblocks.
+            // Our search should not touch data components nor control bits
+            // Note: We should replace data components with data interfaces
+            // However, the data interface guessing has dubious accuracy
 
-                // Relax equality check. We should not consider handshakes with the same
-                // handshake bits to be different in any circumstances
-                if (src_pair.has_same_handshake_bits(other_pair)) {
-                    continue;
-                }
+            // A map from control pins to its corresponding handshakes
+            std::map<CellPin, std::set<Handshake>> ctrl_pins;
+            for (const auto& [handshake, _data_if]: module_data_interfaces) {
+                auto [handshake_if0, handshake_if1] = handshake.decompose();
+                auto [ctrl0, _dffs0] = handshake_if0;
+                auto [ctrl1, _dffs1] = handshake_if1;
 
-                // Select the source side for reachability computation
-                // We use the output pin as per protocol
-                std::set<CellPin> data_interface;
-                std::set<CellPin> other_data_if;
-                for (auto [wire_src, _wire_sink]: wire_interface) {
-                    data_interface.insert(wire_src);
-                }
-                for (auto [wire_src, _wire_sink]: other_wire_if) {
-                    other_data_if.insert(wire_src);
-                }
-
-                if (circuit_graph.reachable(data_interface, other_data_if)) {
-                    if (reachability_map.count(src_pair)) {
-                        reachability_map[src_pair] = {};
+                for (CellPin ctrl_bit: {ctrl0, ctrl1}) {
+                    if (ctrl_pins.count(ctrl_bit) == 0) {
+                        ctrl_pins.insert({ctrl_bit, {}});
                     }
 
-                    if (inverted_reachability_map.count(other_pair)) {
-                        inverted_reachability_map[other_pair] = {};
-                    }
-
-                    // auto src_it = src_pair.begin();
-                    // auto [dff_src_src, eligible_src_src] = *src_it;
-
-                    // std::advance(src_it, 1);
-                    // auto [dff_sink_src, eligible_sink_src] = *src_it;
-
-                    auto [handshake_src0, handshake_src1] = src_pair.decompose_single();
-                    auto [eligible_src_src, dff_src_src] = handshake_src0;
-                    auto [eligible_sink_src, dff_sink_src] = handshake_src1;
-
-                    // auto other_it = other_pair.begin();
-                    // auto [dff_src_sink, eligible_src_sink] = *other_it;
-
-                    // std::advance(other_it, 1);
-                    // auto [dff_sink_sink, eligible_sink_sink] = *other_it;
-
-                    auto [handshake_sink0, handshake_sink1] = other_pair.decompose_single();
-                    auto [eligible_src_sink, dff_src_sink] = handshake_sink0;
-                    auto [eligible_sink_sink, dff_sink_sink] = handshake_sink1;
-
-                    log("DFF %s (CTRL %s:%s:%d) reaches DFF %s (CTRL %s:%s:%d)\n",
-                        log_id(dff_src_src), log_id(std::get<0>(eligible_src_src)), std::get<1>(eligible_src_src).c_str(), std::get<2>(eligible_src_src),
-                        log_id(dff_src_sink), log_id(std::get<0>(eligible_src_sink)), std::get<1>(eligible_src_sink).c_str(), std::get<2>(eligible_src_sink)
-                    );
-
-                    reachability_map[src_pair].insert(other_pair);
-                    inverted_reachability_map[other_pair].insert(src_pair);
+                    ctrl_pins[ctrl_bit].insert(handshake);
                 }
             }
-        }
 
-        // TODO: Remove transitive closure
+            // A set of data components
+            std::set<RTLIL::Cell*> blocking_data_components;
+            // FIXME: Any better candidates than the data cells?
+            blocking_data_components = data_path_cell;
 
-        // For each pair, cut the DFF edge in the DFF graph
-        // Then, check reachability of both DFF with other pairs respectively
-        std::map<std::pair<std::pair<RTLIL::Cell*, CellPin>, std::pair<RTLIL::Cell*, CellPin>>, std::set<Wire>> valid_ready_pair;
-        for (auto &[if_src, if_sinks]: reachability_map) {
-            // auto src_it = if_src.begin();
-            // std::pair<RTLIL::Cell*, CellPin> if_src_info = *src_it;
-            // auto [if_src_dff, if_src_pin] = if_src_info;
+            // 2. For each control bit, find its dependent control bit and its associated bit
+            auto get_ctrl_connectivity = [&](
+                // Convention: This pin is an output pin
+                CellPin origin,
+                Handshake origin_handshake
+            ) -> std::set<std::pair<Handshake, CellPin>> {
+                std::set<std::pair<RTLIL::Cell*, int>> reached_cell_chs;
+                std::set<std::pair<Handshake, CellPin>> source_handshakes;
+                
+                // Convention: Work list should only hold output pins
+                std::vector<CellPin> work_list = {origin};
+                while (!work_list.empty()) {
+                    CellPin curr = work_list.back();
+                    work_list.pop_back();
 
-            // std::advance(src_it, 1);
-            // std::pair<RTLIL::Cell*, CellPin> if_other_src_info = *src_it;
-            // auto [if_other_src_dff, if_other_src_pin] = if_other_src_info;
+                    // Update reached information to avoid loop
+                    // Note: All RTLIL cells in default cell lib only has 1 output port
+                    auto [sink_cell, _sink_port, sink_port_idx] = curr;
+                    reached_cell_chs.insert({sink_cell, sink_port_idx});
 
-            auto [if_src_info, if_other_src_info] = if_src.decompose_single();
-            auto [if_src_pin, if_src_dff] = if_src_info;
-            auto [if_other_src_pin, if_other_src_dff] = if_other_src_info;
+                    // Stop propagation if:
+                    // - the current pin is a control bit of some other handshake
+                    // - It is a different pin from the origin and it is a control bit
+                    if (ctrl_pins.count(curr)) {
+                        std::set<Handshake> controlling_handshakes = ctrl_pins.at(curr);
+                        controlling_handshakes.erase(origin_handshake);
 
-            // Find the next combinatorial gates that goes through the interface control bits
-            std::set<CellPin> if_src_next_pins = cut_edges.at(if_src).at(if_src_pin);
-            std::set<CellPin> if_other_src_next_pins = cut_edges.at(if_src).at(if_other_src_pin);
-
-            for (const auto& if_sink: if_sinks) {
-                // auto sink_it = if_sink.begin();
-                // std::pair<RTLIL::Cell*, CellPin> if_sink_info = *sink_it;
-                // auto [if_sink_dff, if_sink_pin] = if_sink_info;
-
-                // std::advance(sink_it, 1);
-                // std::pair<RTLIL::Cell*, CellPin> if_other_sink_info = *sink_it;
-                // auto [if_other_sink_dff, if_other_sink_pin] = if_other_sink_info;
-
-                auto [if_sink_info, if_other_sink_info] = if_src.decompose_single();
-                auto [if_sink_pin, if_sink_dff] = if_sink_info;
-                auto [if_other_sink_pin, if_other_sink_dff] = if_other_sink_info;
-
-                auto cut_graph_dff_reachable = [&](
-                    RTLIL::Cell* src,
-                    RTLIL::Cell* dest,
-                    std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removed_edges
-                ) {
-                    std::set<RTLIL::Cell*> reached_cells;
-                    
-                    std::vector<RTLIL::Cell*> work_list;
-                    work_list.push_back(src);
-
-                    while (!work_list.empty()) {
-                        RTLIL::Cell* curr = work_list.back();
-                        work_list.pop_back();
-
-                        reached_cells.insert(curr);
-
-                        if (curr == dest) {
-                            return true;
+                        if ((controlling_handshakes.size() > 1) || (curr != origin)) {
+                            // Record adjacent handshakes
+                            // We ignore all connections between the same handshake
+                            for (const Handshake& src_handshake: controlling_handshakes) {
+                                source_handshakes.insert({src_handshake, curr});
+                            }
                         }
+
+                        if (curr != origin) {
+                            continue;
+                        }
+                    }
+
+                    // Find dependent inputs.
+                    std::set<Source> srcs;
+                    for (auto [in_port, in_port_sig]: sink_cell->connections()) {
+                        if (sink_cell->input(in_port)) {
+                            // If the cell is a DFF, only propagate through the control signals and the corresponding data pin
+                            if (RTLIL::builtin_ff_cell_types().count(sink_cell->type) && in_port == "\\D") {
+                                Source sub_src = circuit_graph.source_map.at(sink_cell).at("\\D").at(sink_port_idx);
+                                srcs.insert(sub_src);
+                            } else {
+                                for (int i = 0; i < GetSize(in_port_sig); ++i) {
+                                    Source i_src = circuit_graph.source_map.at(sink_cell).at(in_port).at(i);
+                                    srcs.insert(i_src);
+                                }
+                            }
+                        }
+                    }
+                    for (Source src: srcs) {
+                        // No need to propagate to external pins
+                        if (std::holds_alternative<RTLIL::SigBit>(src)) {
+                            continue;
+                        }
+
+                        auto [src_cell, src_port, src_port_idx] = std::get<CellPin>(src);
+                        // Loop avoiding
+                        if (reached_cell_chs.count({src_cell, src_port_idx})) {
+                            continue;
+                        }
+
+                        // Do not propagate to data cells
+                        if (blocking_data_components.count(src_cell)) {
+                            continue;
+                        }
+
+                        // if (data_path.acyclic_node_map.count(src_cell)) {
+                        //     continue;
+                        // }
 
                         // Propagate
-                        if (circuit_graph.dff_sink_graph.count(curr)) {
-                            for (RTLIL::Cell* dff_sink: circuit_graph.dff_sink_graph.at(curr)) {
-                                // Ignore removed edges
-                                if (removed_edges.count(curr)) {
-                                    if (removed_edges.at(curr).count(dff_sink)) {
-                                        continue;
-                                    }
-                                }
-
-                                // Ignore data registers
-                                if (data_regs.count(dff_sink)) {
-                                    continue;
-                                }
-
-                                if (reached_cells.count(dff_sink) == 0) {
-                                    work_list.push_back(dff_sink);
-                                }
-                            }
-                        }
-                    }
-
-                    return false;
-                };
-
-                auto reachable_dff_sinks = [&](CellPin ctrl_bit) {
-                    std::set<RTLIL::Cell*> ret;
-
-                    std::vector<CellPin> work_list;
-                    work_list.push_back(ctrl_bit);
-                    while (!work_list.empty()) {
-                        auto [curr_cell, curr_port, curr_idx] = work_list.back();
-                        work_list.pop_back();
-
-                        for (Sink& sink: circuit_graph.sink_map.at(curr_cell).at(curr_port).at(curr_idx)) {
-                            if (std::holds_alternative<RTLIL::SigBit>(sink)) {
-                                continue;
-                            }
-
-                            auto [sink_cell, sink_port, _sink_idx] = std::get<CellPin>(sink);
-
-                            // Push it back to the returned list if a DFF is found
-                            // Do no propagate through temporal boundary
-                            if (RTLIL::builtin_ff_cell_types().count(sink_cell->type)) {
-                                ret.insert(sink_cell);
-                                continue;
-                            }
-
-                            // Propagate through combinatorial cells
-                            for (const auto& [sink_out_port, sink_out_sig]: sink_cell->connections()) {
-                                if (sink_cell->output(sink_out_port)) {
-                                    for (int i = 0; i < GetSize(sink_out_sig); ++i) {
-                                        work_list.push_back({sink_cell, sink_out_port, i});
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    return ret;
-                };
-
-                auto reachable_dff_sources = [&](CellPin ctrl_bit) {
-                    std::set<RTLIL::Cell*> ret;
-
-                    std::vector<CellPin> work_list;
-                    work_list.push_back(ctrl_bit);
-                    while (!work_list.empty()) {
-                        // We assume the pins are always outputs of some cells
-                        auto [curr_cell, curr_port, curr_idx] = work_list.back();
-                        work_list.pop_back();
-
-                        if (RTLIL::builtin_ff_cell_types().count(curr_cell->type)) {
-                            ret.insert(curr_cell);
-                            continue;
-                        }
-
-                        for (const auto& [curr_in_port, curr_in_sig]: curr_cell->connections()) {
-                            if (curr_cell->input(curr_in_port)) {
-                                for (int i = 0; i < GetSize(curr_in_sig); ++i) {
-                                    const Source& source = circuit_graph.source_map.at(curr_cell).at(curr_in_port).at(i);
-                                    if (std::holds_alternative<RTLIL::SigBit>(source)) {
-                                        continue;
-                                    }
-                                    work_list.push_back(std::get<CellPin>(source));
-                                }
-                            }
-                        }
-                    }
-
-                    return ret;
-                };
-
-                // Find potential DFF paths that pass through the chokepoints
-                // Remove these paths
-                std::set<CellPin> chokepoints = {if_src_pin, if_other_src_pin, if_sink_pin, if_other_sink_pin};
-                std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removals;
-                for (CellPin chokepoint: chokepoints) {
-                    std::set<RTLIL::Cell*> dff_srcs = reachable_dff_sources(chokepoint);
-                    std::set<RTLIL::Cell*> dff_sinks = reachable_dff_sinks(chokepoint);
-
-                    for (RTLIL::Cell* dff_src: dff_srcs) {
-                        if (removals.count(dff_src) == 0) {
-                            removals[dff_src] = {};
-                        }
-                        removals[dff_src].insert(dff_sinks.begin(), dff_sinks.end());
+                        work_list.push_back({src_cell, src_port, src_port_idx});
                     }
                 }
 
-                // Test which DFFs are reachable to which
-                // For each source DFF, try to reach one of the sink DFFs
-                auto cut_graph_dff_reachable_from_ctrl = [&](
-                    const std::set<CellPin> ctrl_bit_critical_sinks,
-                    RTLIL::Cell* ctrl_fsm_dff,
-                    RTLIL::Cell* target_dff,
-                    std::map<RTLIL::Cell*, std::set<RTLIL::Cell*>> removed_edges
-                ) {
-                    std::set<RTLIL::Cell*> dff_direct_sinks;
-                    for (const CellPin& crit_sink_pin: ctrl_bit_critical_sinks) {
-                        // Convert sink pins into outputs
-                        auto [crit_cell, crit_port, crit_idx] = crit_sink_pin;
-                        if (RTLIL::builtin_ff_cell_types().count(crit_cell->type)) {
-                            dff_direct_sinks.insert(crit_cell);
-                            continue;
-                        }
+                // Any handshake bit is always dependent on the opposite handshake bit
+                source_handshakes.insert({origin_handshake, origin_handshake.get_opposite_ctrl(origin)});
 
-                        for (const auto& [out_port, out_sig]: crit_cell->connections()) {
-                            if (crit_cell->output(out_port)) {
-                                for (int i = 0; i < GetSize(out_sig); ++i) {
-                                    std::set<RTLIL::Cell*> reachables = reachable_dff_sinks({
-                                        crit_cell, out_port, i
-                                    });
-                                    dff_direct_sinks.insert(reachables.begin(), reachables.end());
-                                }
-                            }
-                        }
-                    }
+                // All block-less reachable are resolved
+                return source_handshakes;
+            };
 
-                    for (RTLIL::Cell* direct_sink: dff_direct_sinks) {
-                        // First, the target DFFs could be reached directly
-                        if (target_dff == direct_sink) {
-                            return true;
-                        }
-
-                        // Ignore data registers
-                        if (data_regs.count(direct_sink)) {
-                            continue;
-                        }
-
-                        // It is also possible to reach the target indirectly
-                        if (cut_graph_dff_reachable(
-                            direct_sink,
-                            target_dff,
-                            removed_edges
-                        )) {
-                            return true;
-                        }
-                    }
-
-                    return false;
-                };
-
-                bool this_src_this_sink_reachable = cut_graph_dff_reachable_from_ctrl(
-                    if_src_next_pins, if_src_dff, if_sink_dff, removals
-                );
-                bool this_src_other_sink_reachable = cut_graph_dff_reachable_from_ctrl(
-                    if_src_next_pins, if_src_dff, if_other_sink_dff, removals
-                );
-                bool other_src_this_sink_reachable = cut_graph_dff_reachable_from_ctrl(
-                    if_other_src_next_pins, if_other_src_dff, if_sink_dff, removals
-                );
-                bool other_src_other_sink_reachable = cut_graph_dff_reachable_from_ctrl(
-                    if_other_src_next_pins, if_other_src_dff, if_other_sink_dff, removals
-                );
-
-                // TODO: We actually do not need to recreate set?
-                // The handshake struct is already order agnostic.
-                std::pair<std::pair<RTLIL::Cell*, CellPin>, std::pair<RTLIL::Cell*, CellPin>> pair_tag0;
-                // std::set<std::pair<RTLIL::Cell*, CellPin>> pair_set0;
-                std::pair<std::pair<RTLIL::Cell*, CellPin>, std::pair<RTLIL::Cell*, CellPin>> pair_tag1;
-                // std::set<std::pair<RTLIL::Cell*, CellPin>> pair_set1;
-                if (this_src_this_sink_reachable) {
-                    log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_sink_dff));
-                    pair_tag0 = {pair_swap(if_other_src_info), pair_swap(if_src_info)};
-                    // pair_set0 = {pair_swap(if_other_src_info), pair_swap(if_src_info)};
-                    pair_tag1 = {pair_swap(if_sink_info), pair_swap(if_other_sink_info)};
-                    // pair_set1 = {pair_swap(if_sink_info), pair_swap(if_other_sink_info)};
+            for (const auto& [ctrl_pin, handshake_set]: ctrl_pins) {
+                for (const Handshake& handshake: handshake_set) {
+                    ctrl_pin_connectivity[{handshake, ctrl_pin}] = get_ctrl_connectivity(ctrl_pin, handshake);
                 }
+            }
 
-                if (this_src_other_sink_reachable) {
-                    log("DFF %s and %s should be grouped up together\n", log_id(if_src_dff), log_id(if_other_sink_dff));
-                    pair_tag0 = {pair_swap(if_other_src_info), pair_swap(if_src_info)};
-                    // pair_set0 = {pair_swap(if_other_src_info), pair_swap(if_src_info)};
-                    pair_tag1 = {pair_swap(if_other_sink_info), pair_swap(if_sink_info)};
-                    // pair_set1 = {pair_swap(if_other_sink_info), pair_swap(if_sink_info)};
+            // // Check if any control pin considers itself connected to both sides of some other handshake
+            // // If so resolve it by checking for path to the direct sink
+            // for (auto& [sink, srcs]: ctrl_pin_connectivity) {
+            //     std::set<Handshake> src_handshakes;
+            //     std::set<Handshake> duplicating_handshakes;
+            //     for (auto& [src_handshake, src_ctrl_pin]: srcs) {
+            //         src_handshakes.insert()
+            //     }
+            // }
+
+            log("Control handshake connectivity:\n");
+            for (auto [sink, srcs]: ctrl_pin_connectivity) {
+                auto [sink_handshake, sink_ctrl_pin] = sink;
+                auto [sink_cell, sink_port, sink_port_idx] = sink_ctrl_pin;
+                log("%s:%s:%d depends on:\n", log_id(sink_cell), log_id(sink_port), sink_port_idx);
+                for (auto [src_handshake, src_ctrl_pin]: srcs) {
+                    // src_handshake.write_ctrl_pins();
+                    auto [src_cell, src_port, src_port_idx] = src_ctrl_pin;
+                    log("%s:%s:%d\n", log_id(src_cell), log_id(src_port), src_port_idx);
+                    log("\n");
                 }
-
-                if (other_src_this_sink_reachable) {
-                    log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_sink_dff));
-                    pair_tag0 = {pair_swap(if_src_info), pair_swap(if_other_src_info)};
-                    // pair_set0 = {pair_swap(if_src_info), pair_swap(if_other_src_info)};
-                    pair_tag1 = {pair_swap(if_sink_info), pair_swap(if_other_sink_info)};
-                    // pair_set1 = {pair_swap(if_sink_info), pair_swap(if_other_sink_info)};
-                }
-
-                if (other_src_other_sink_reachable) {
-                    log("DFF %s and %s should be grouped up together\n", log_id(if_other_src_dff), log_id(if_other_sink_dff));
-                    pair_tag0 = {pair_swap(if_src_info), pair_swap(if_other_src_info)};
-                    // pair_set0 = {pair_swap(if_src_info), pair_swap(if_other_src_info)};
-                    pair_tag1 = {pair_swap(if_other_sink_info), pair_swap(if_sink_info)};
-                    // pair_set1 = {pair_swap(if_other_sink_info), pair_swap(if_sink_info)};
-                }
-
-                if (
-                    !this_src_this_sink_reachable &&
-                    !this_src_other_sink_reachable &&
-                    !other_src_this_sink_reachable &&
-                    !other_src_other_sink_reachable
-                ) {
-                    log_error("Grouping unclear!\n");
-                }
-
-                valid_ready_pair[pair_tag0] = module_data_interfaces.at(if_src);
-                valid_ready_pair[pair_tag1] = module_data_interfaces.at(if_sink);
+                log("\n\n");
             }
         }
 
-        // FIXME: WTF is this?
-        log("\n");
-        for (auto [ctrl_info, data_iface]: valid_ready_pair) {
-            auto [valid_info, ready_info] = ctrl_info;
-            auto [valid_dff, valid] = valid_info;
-            auto [ready_dff, ready] = ready_info;
-            log("Valid: %s:%s\n", log_id(std::get<0>(valid)), std::get<1>(valid).c_str());
-            log("Ready: %s:%s\n", log_id(std::get<0>(ready)), std::get<1>(ready).c_str());
-            log("\n");
+        // Coalesce the interfaces to generate a module boundary
+        PseudoModuleCollection pseudo_modules(ctrl_pin_connectivity);
+        pseudo_modules.write_log();
 
-            // Faux-reconstruct a handshake entry for valid/ready
-            Handshake vr_handshake(
-                valid, {valid_dff},
-                ready, {ready_dff}
-            );
+        VrModuleCollection vr_modules(
+            pseudo_modules, module_data_interfaces, circuit_graph
+        );
 
-            // Retrieve data interfaces
-            bool found_data_if = false;
-            std::set<Wire> data_if;
-            for (auto [ctrl_info, wire_if]: module_data_interfaces) {
-                if (vr_handshake.has_same_handshake_bits(ctrl_info)) {
-                    found_data_if = true;
-                    // No need to look further
-                    break;
-                }
-                // bool found_valid = false;
-                // bool found_ready = false;
-                // for (auto [_ctrl_dff, ctrl_pin]: ctrl_info) {
-                //     if (!found_valid && (ctrl_pin == valid)) {
-                //         found_valid = true;
-                //     }
-                //     if (!found_ready && (ctrl_pin == ready)) {
-                //         found_ready = true;
-                //     }
-                // }
-
-                // if (found_valid && found_ready) {
-                //     data_if = wire_if;
-                //     // No need to look further
-                //     found_data_if = true;
-                //     break;
-                // }
-            }
-
-            if (!found_data_if) {
-                log_error("Data interface not found\n");
-            }
-        }
-
-        // Partition graph, starting from the root(s) of the interface dependency graph
-        std::set<ValidReadyProto> root_proto_ifaces;
-        for (auto [ctrl_info, data_iface]: valid_ready_pair) {
-            auto [valid_info, ready_info] = ctrl_info;
-            bool is_root = true;
-
-            // FIXME: Hack equality checking by reconstructing a generic handshake instance
-            auto [valid_dff, valid_pin] = valid_info;
-            auto [ready_dff, ready_pin] = ready_info;
-            Handshake vr_handshake(
-                valid_pin, {valid_dff},
-                ready_pin, {ready_dff}
-            );
-
-            // Check if the current interface is ever an interface sink
-            for (auto [_other_from_if, other_to_ifs]: reachability_map) {
-                for (Handshake other_to_if: other_to_ifs) {
-                    // auto other_to_if_it = other_to_if.begin();
-                    // auto other_to_if0 = *other_to_if_it;
-
-                    // std::advance(other_to_if_it, 1);
-                    // auto other_to_if1 = *other_to_if_it;
-
-                    // // Equality
-                    // if ((other_to_if0 == valid_info && other_to_if1 == ready_info)
-                    //         || (other_to_if0 == ready_info && other_to_if1 == valid_info)) {
-                    //     is_root = false;
-                    // }
-
-                    if (vr_handshake.has_same_handshake_bits(other_to_if)) {
-                        is_root = false;
+        // Convert into partition after consolidating the handshake interfaces
+        std::vector<Partition> partitioned_modules;
+        {
+            for (const VrModule& vr_module: vr_modules.inner) {
+                // Act as an adapter to the following constructor
+                std::set<ValidReadyProto> ingress_ifaces;
+                std::set<ValidReadyProto> egress_ifaces;
+                for (const auto& [ingress_handshake, ingress_wires]: vr_module.data_inputs) {
+                    // Search for valid
+                    CellPin valid;
+                    bool found_valid = false;
+                    for (const auto& [ctrl_ingress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
+                        if (ctrl_ingress_handshake == ingress_handshake) {
+                            found_valid = true;
+                            valid = ctrl_in;
+                        }
                     }
-                }
-            }
 
-            if (is_root) {
-                root_proto_ifaces.insert({valid_info, ready_info, data_iface});
+                    CellPin ready;
+                    bool found_ready = false;
+                    for (const auto& [ctrl_ingress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
+                        if (ctrl_ingress_handshake == ingress_handshake) {
+                            found_ready = true;
+                            ready = ctrl_out;
+                        }
+                    }
+
+                    if (!(found_valid && found_ready)) {
+                        log_error("Supplied invalid valid/ready module to partition\n");
+                    }
+
+                    ingress_ifaces.insert({
+                        valid, ready, ingress_wires
+                    });
+                }
+
+                for (const auto& [egress_handshake, egress_wires]: vr_module.data_outputs) {
+                    // Search for valid
+                    CellPin valid;
+                    bool found_valid = false;
+                    for (const auto& [ctrl_egress_handshake, ctrl_out]: vr_module.ctrl_inputs) {
+                        if (ctrl_egress_handshake == egress_handshake) {
+                            found_valid = true;
+                            valid = ctrl_out;
+                        }
+                    }
+
+                    CellPin ready;
+                    bool found_ready = false;
+                    for (const auto& [ctrl_egress_handshake, ctrl_in]: vr_module.ctrl_outputs) {
+                        if (ctrl_egress_handshake == egress_handshake) {
+                            found_ready = true;
+                            ready = ctrl_in;
+                        }
+                    }
+
+                    if (!(found_valid && found_ready)) {
+                        log_error("Supplied invalid valid/ready module to partition\n");
+                    }
+
+                    egress_ifaces.insert({
+                        valid, ready, egress_wires
+                    });
+                }
+
+                partitioned_modules.push_back(
+                    Partition(ingress_ifaces, egress_ifaces, circuit_graph, &ff_init_vals));
             }
         }
 
-        // // TODO: Do partition for every interface
-        // std::set<ValidReadyProto> source_ifs = root_proto_ifaces;
-        // std::set<ValidReadyProto> sink_ifs;
-        // for (auto [src_valid_info, src_ready_info, src_data_if]: source_ifs) {
-        //     for (auto [ctrl_info, sink_data_iface]: valid_ready_pair) {
-        //         if (reachability_map.count({src_valid_info, src_ready_info}) == 0) {
-        //             continue;
-        //         }
+        // Check module size
+        for (const Partition& partition: partitioned_modules) {
+            log("Module has %ld cells\n", partition.cells.size());
+        }
 
-        //         auto [sink_valid_info, sink_ready_info] = ctrl_info;
-        //         for (auto potential_if_sinks: reachability_map.at({src_valid_info, src_ready_info})) {
-        //             auto potential_if_sinks_it = potential_if_sinks.begin();
-        //             HandshakeInfo potential_if_sink0 = *potential_if_sinks_it;
-
-        //             std::advance(potential_if_sinks_it, 1);
-        //             HandshakeInfo potential_if_sink1 = *potential_if_sinks_it;
-
-        //             if (sink_valid_info == potential_if_sink0 && sink_ready_info == potential_if_sink1) {
-        //                 sink_ifs.insert({sink_valid_info, sink_ready_info, sink_data_iface});
-        //             }
-        //         }
-        //     }
-        // }
-
-        // Partition main_part(source_ifs, sink_ifs, circuit_graph, &ff_init_vals);
-        // log("Partition size: %ld\n", main_part.cells.size());
-        // // // Paint partitioned cells on yosys
-        // // {
-        // //     std::stringstream ss;
-        // //     ss << "select -set partitioned_cells ";
-
-        // //     for (RTLIL::Cell* enclosed_cell: main_part.cells) {
-        // //         ss << "c:" << enclosed_cell->name.c_str() << " ";
-        // //     }
-        // //     // for (RTLIL::Cell* data_comp: experimental_data_ifs) {
-        // //     //     ss << "c:" << data_comp->name.c_str() << " ";
-        // //     // }
-
-        // //     Pass::call(design, ss.str().c_str());
-        // // }
-
-        // main_part.to_shakeflow("demo");
-
-        // Partition src_part({}, source_ifs, circuit_graph, &ff_init_vals);
-        // log("Partition size: %ld\n", src_part.cells.size());
-        // // Paint partitioned cells on yosys
-        // {
-        //     std::stringstream ss;
-        //     ss << "select -set partitioned_cells ";
-
-        //     for (RTLIL::Cell* enclosed_cell: src_part.cells) {
-        //         ss << "c:" << enclosed_cell->name.c_str() << " ";
-        //     }
-        //     // for (RTLIL::Cell* data_comp: experimental_data_ifs) {
-        //     //     ss << "c:" << data_comp->name.c_str() << " ";
-        //     // }
-
-        //     Pass::call(design, ss.str().c_str());
-        // }
-        // src_part.to_shakeflow("demo_src");
-
-        // Partition sink_part(sink_ifs, {}, circuit_graph, &ff_init_vals);
-        // log("Partition size: %ld\n", sink_part.cells.size());
-        // sink_part.to_shakeflow("demo_sink");
-        // // TODO: Do partition for every interface
-        // // // All partitions should include the valid source, ready sink, and data source
-        // // std::set<RTLIL::Cell*> cells_in_partition;
-        // // for (auto [valid_info, ready_info]: source_ifs) {
-        // //     // Process the valid signal
-        // //     auto [valid_dff, valid] = valid_info;
-        // //     auto [ready_dff, ready] = ready_info;
-        // //     cells_in_partition.insert(std::get<0>(valid));
-
-        // //     // Process ready signal
-        // //     for (CellPin ready_sink: cut_edges.at({valid_info, ready_info}).at(ready)) {
-        // //         cells_in_partition.insert(std::get<0>(ready_sink));
-        // //     }
-
-        // //     // Process data interface
-        // //     for (auto [data_src, _data_sink]: module_data_interfaces.at({valid_info, ready_info})) {
-        // //         cells_in_partition.insert(std::get<0>(data_src));
-        // //     }
-
-        // //     // Paint the datapath
-        // // }
-
+        for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+            std::stringstream ss;
+            ss << "synth_module" << i;
+            partitioned_modules[i].to_shakeflow(ss.str());
+        }
     }
 } ValidReadyPass;
 

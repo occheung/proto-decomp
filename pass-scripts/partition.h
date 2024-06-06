@@ -4,6 +4,7 @@
 #include "kernel/ffinit.h"
 #include "kernel/ff.h"
 #include "graph.h"
+#include "util.h"
 
 
 USING_YOSYS_NAMESPACE
@@ -41,9 +42,7 @@ struct Partition {
         // Process input interfaces
         // Input:  valid, data
         // Output: ready
-        for (auto [valid_info, ready_info, data_ifaces]: iface_sources) {
-            auto [_valid_dff, valid_pin] = valid_info;
-            auto [_ready_dff, ready_pin] = ready_info;
+        for (auto [valid_pin, ready_pin, data_ifaces]: iface_sources) {
             inputs.insert(std::get<0>(valid_pin));
             outputs.insert(std::get<0>(ready_pin));
 
@@ -55,9 +54,7 @@ struct Partition {
         // Process output interfaces
         // Input:  ready
         // Output: valid, data
-        for (auto [valid_info, ready_info, data_ifaces]: iface_sinks) {
-            auto [_valid_dff, valid_pin] = valid_info;
-            auto [_ready_dff, ready_pin] = ready_info;
+        for (auto [valid_pin, ready_pin, data_ifaces]: iface_sinks) {
             outputs.insert(std::get<0>(valid_pin));
             inputs.insert(std::get<0>(ready_pin));
 
@@ -354,12 +351,11 @@ struct Partition {
         auto end_main_fsm = [&]() {
             // Recompose interfaces
             for (const ValidReadyProto& proto: this->vr_srcs) {
-                const auto& [_ready_dff, ready_pin] = std::get<1>(proto);
+                const CellPin& ready_pin = std::get<1>(proto);
                 f << "let " << vr_name_map.at(proto) << " = Expr::<Ready>::new(" << cell_pin_to_name(ready_pin) << ");";
             }
             for (const ValidReadyProto& proto: this->vr_sinks) {
-                const auto& [valid_info, _ready_info, data_iface] = proto;
-                const CellPin& valid_pin = std::get<1>(valid_info);
+                const auto& [valid_pin, _ready_pin, data_iface] = proto;
                 f << "let " << vr_name_map.at(proto) << " = Expr::<Valid<_>>::new(" << cell_pin_to_name(valid_pin) << ", [";
                 // Arbitrarily format data, compute data width
                 // A data pin may have multiple sinks
@@ -442,10 +438,9 @@ struct Partition {
             // valid/ready sources contribute valid and data input
             for (const auto& proto: this->vr_srcs) {
                 std::string vr_iface_name = vr_name_map.at(proto);
-                const auto& [valid_info, _ready_info, data_iface] = proto;
+                const auto& [valid_pin, _ready_pin, data_iface] = proto;
 
                 // Valid processing
-                const auto& [_valid_dff, valid_pin] = valid_info;
                 f << "let " << cell_pin_to_name(valid_pin) << " = ic_fwd." << vr_iface_name << ".valid;";
                 processed_pins.insert(valid_pin);
 
@@ -468,7 +463,7 @@ struct Partition {
             // valid/ready sinks contribute ready
             for (const auto& proto: this->vr_sinks) {
                 std::string vr_iface_name = vr_name_map.at(proto);
-                const auto& [_ready_dff, ready_pin] = std::get<1>(proto);
+                const CellPin& ready_pin = std::get<1>(proto);
                 f << "let " << cell_pin_to_name(ready_pin) << " = oc_bwd." << vr_iface_name << ".ready;";
                 processed_pins.insert(ready_pin);
             }

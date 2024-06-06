@@ -460,6 +460,32 @@ struct DataPath {
 
         return ret;
     }
+
+    std::set<RTLIL::Cell*> get_subgraph_successor_cells(
+        const std::set<std::shared_ptr<DataElement>>& subgraph,
+        const std::set<Wire>& interface
+    ) const {
+        std::set<RTLIL::Cell*> ret;
+        std::vector<std::shared_ptr<DataElement>> work_list;
+        for (auto [from_cell, to_cell]: interface) {
+            work_list.push_back(this->acyclic_node_map.at(std::get<0>(from_cell)));
+            work_list.push_back(this->acyclic_node_map.at(std::get<0>(to_cell)));
+        }
+
+        while (!work_list.empty()) {
+            std::shared_ptr<DataElement> curr_elm = work_list.back();
+            work_list.pop_back();
+
+            ret.insert(curr_elm->subgraph_nodes.begin(), curr_elm->subgraph_nodes.end());
+            for (std::shared_ptr<DataElement> sink: curr_elm->sink) {
+                if (subgraph.count(sink)) {
+                    work_list.push_back(sink);
+                }
+            }
+        }
+
+        return ret;
+    }
 };
 
 

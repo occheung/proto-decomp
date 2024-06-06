@@ -19,7 +19,7 @@ typedef std::pair<CellPin, CellPin> Wire;
 
 typedef std::pair<RTLIL::Cell*, CellPin> HandshakeInfo;
 typedef std::set<Wire> DataInterface;
-typedef std::tuple<HandshakeInfo, HandshakeInfo, DataInterface> ValidReadyProto;
+typedef std::tuple<CellPin, CellPin, DataInterface> ValidReadyProto;
 
 
 struct CircuitGraph {
