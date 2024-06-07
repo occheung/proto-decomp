@@ -404,7 +404,7 @@ struct ValidReadyPass : public Pass {
                                             // Add the sink to the edges to be cut set if
                                             // the sink is part of the opposite half path set
                                             if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                edges_to_be_cut_opt[sink_first_divergence].insert(first_div_sink_pin);
                                             }
                                         }
                                     }
@@ -506,8 +506,8 @@ struct ValidReadyPass : public Pass {
                                                     CellPin first_div_sink_pin = std::get<CellPin>(first_div_sink);
                                                     // Add the sink to the edges to be cut set if
                                                     // the sink is part of the half path set
-                                                    if (half_path_set.count(std::get<0>(first_div_sink_pin))) {
-                                                        edges_to_be_cut_opt[src_first_divergence].insert(first_div_sink_pin);
+                                                    if (opposite_half_path_set.count(std::get<0>(first_div_sink_pin))) {
+                                                        edges_to_be_cut_opt[sink_first_divergence].insert(first_div_sink_pin);
                                                     }
                                                 }
                                             }
