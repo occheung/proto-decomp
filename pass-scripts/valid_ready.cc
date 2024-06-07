@@ -1282,7 +1282,7 @@ struct ValidReadyPass : public Pass {
                     // Search for valid
                     CellPin valid;
                     bool found_valid = false;
-                    for (const auto& [ctrl_egress_handshake, ctrl_out]: vr_module.ctrl_inputs) {
+                    for (const auto& [ctrl_egress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
                         if (ctrl_egress_handshake == egress_handshake) {
                             found_valid = true;
                             valid = ctrl_out;
@@ -1291,7 +1291,7 @@ struct ValidReadyPass : public Pass {
 
                     CellPin ready;
                     bool found_ready = false;
-                    for (const auto& [ctrl_egress_handshake, ctrl_in]: vr_module.ctrl_outputs) {
+                    for (const auto& [ctrl_egress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
                         if (ctrl_egress_handshake == egress_handshake) {
                             found_ready = true;
                             ready = ctrl_in;
