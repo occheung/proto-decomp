@@ -46,8 +46,9 @@ struct Partition {
             inputs.insert(std::get<0>(valid_pin));
             outputs.insert(std::get<0>(ready_pin));
 
-            for (auto [data_src, _data_sink]: data_ifaces) {
+            for (auto [data_src, data_sink]: data_ifaces) {
                 inputs.insert(std::get<0>(data_src));
+                this->cells.insert(std::get<0>(data_sink));
             }
         }
 
