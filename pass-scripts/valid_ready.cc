@@ -1209,28 +1209,57 @@ struct ValidReadyPass : public Pass {
                 }
             }
 
-            // // Check if any control pin considers itself connected to both sides of some other handshake
-            // // If so resolve it by checking for path to the direct sink
-            // for (auto& [sink, srcs]: ctrl_pin_connectivity) {
-            //     std::set<Handshake> src_handshakes;
-            //     std::set<Handshake> duplicating_handshakes;
-            //     for (auto& [src_handshake, src_ctrl_pin]: srcs) {
-            //         src_handshakes.insert()
-            //     }
-            // }
-
+            // Identify intra-module loop
+            // It is a 1-hop check
+            std::map<std::pair<Handshake, CellPin>, std::set<std::pair<Handshake, CellPin>>> intra_ifaces;
             log("Control handshake connectivity:\n");
             for (auto [sink, srcs]: ctrl_pin_connectivity) {
                 auto [sink_handshake, sink_ctrl_pin] = sink;
                 auto [sink_cell, sink_port, sink_port_idx] = sink_ctrl_pin;
                 log("%s:%s:%d depends on:\n", log_id(sink_cell), log_id(sink_port), sink_port_idx);
+
+                std::set<Handshake> encountered_handshakes;
+                std::set<Handshake> duplicated_handshakes;
                 for (auto [src_handshake, src_ctrl_pin]: srcs) {
-                    // src_handshake.write_ctrl_pins();
                     auto [src_cell, src_port, src_port_idx] = src_ctrl_pin;
                     log("%s:%s:%d\n", log_id(src_cell), log_id(src_port), src_port_idx);
                     log("\n");
+
+                    if (encountered_handshakes.count(src_handshake)) {
+                        duplicated_handshakes.insert(src_handshake);
+                    } else {
+                        encountered_handshakes.insert(src_handshake);
+                    }
                 }
                 log("\n\n");
+
+                for (const Handshake& dup_hs: duplicated_handshakes) {
+                    auto [handshake_if0, handshake_if1] = dup_hs.decompose();
+                    auto [ctrl0, _dffs0] = handshake_if0;
+                    auto [ctrl1, _dffs1] = handshake_if1;
+                    for (CellPin ctrl: {ctrl0, ctrl1}) {
+                        if (ctrl_pin_connectivity.at({dup_hs, ctrl}).count(sink)) {
+                            if (intra_ifaces.count(sink) == 0) {
+                                intra_ifaces.insert({sink, {}});
+                            }
+                            intra_ifaces[sink].insert({dup_hs, ctrl});
+                        }
+                    }
+                }
+            }
+
+            log("\n");
+            log("Intra interfaces:\n");
+            for (const auto& [sink, intra_srcs]: intra_ifaces) {
+                auto [sink_handshake, sink_ctrl_pin] = sink;
+                auto [sink_cell, sink_port, sink_port_idx] = sink_ctrl_pin;
+                log("%s:%s:%d depends on:\n", log_id(sink_cell), log_id(sink_port), sink_port_idx);
+                for (auto [src_handshake, src_ctrl_pin]: intra_srcs) {
+                    auto [src_cell, src_port, src_port_idx] = src_ctrl_pin;
+                    log("%s:%s:%d\n", log_id(src_cell), log_id(src_port), src_port_idx);
+
+                    ctrl_pin_connectivity[sink].erase({src_handshake, src_ctrl_pin});
+                }
             }
         }
 
