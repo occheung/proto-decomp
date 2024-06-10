@@ -486,6 +486,98 @@ struct DataPath {
 
         return ret;
     }
+
+    std::set<std::shared_ptr<DataElement>> promote_inputs(
+        const std::set<std::shared_ptr<DataElement>>& subgraph_nodes,
+        const std::set<std::shared_ptr<DataElement>>& data_inputs
+    ) {
+        // Find if some input is a successor of some other inputs
+        std::set<std::shared_ptr<DataElement>> frontier = data_inputs;
+        std::set<std::shared_ptr<DataElement>> new_frontier;
+        std::set<std::shared_ptr<DataElement>> removed_frontier;
+
+        do {
+            // Update frontier
+            for (std::shared_ptr<DataElement> cell: removed_frontier) {
+                frontier.erase(cell);
+            }
+            frontier.insert(new_frontier.begin(), new_frontier.end());
+            new_frontier.clear();
+
+            for (std::shared_ptr<DataElement> frontier_src: frontier) {
+                for (std::shared_ptr<DataElement> frontier_sink: frontier) {
+                    if (frontier_src == frontier_sink) {
+                        continue;
+                    }
+                    if (!this->get_inter_nodes(frontier_src, frontier_sink).empty()) {
+                        // Move the frontier to its descendents
+                        removed_frontier.insert(frontier_src);
+                        for (std::shared_ptr<DataElement> next: frontier_src->sink) {
+                            if (subgraph_nodes.count(next)) {
+                                new_frontier.insert(next);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Do not propagate to removed frontier
+            for (std::shared_ptr<DataElement> removed_node: removed_frontier) {
+                new_frontier.erase(removed_node);
+            }
+        } while (!new_frontier.empty());
+
+        // No new data elements to be added
+        // Remove anything that is still in the removed frontier
+        for (std::shared_ptr<DataElement> cell: removed_frontier) {
+            frontier.erase(cell);
+        }
+
+        return frontier;
+    }
+
+    std::set<std::shared_ptr<DataElement>> advance_frontier(
+        const std::set<std::shared_ptr<DataElement>>& subgraph,
+        const std::set<RTLIL::Cell*> frontier
+    ) const {
+        // Promote all cells to its successors
+        std::set<std::shared_ptr<DataElement>> new_frontier_elms;
+        std::set<std::shared_ptr<DataElement>> frontier_elms;
+        for (RTLIL::Cell* cell: frontier) {
+            std::shared_ptr<DataElement> cell_elm = this->acyclic_node_map.at(cell);
+            if (subgraph.count(cell_elm)) {
+                frontier_elms.insert(cell_elm);
+            }
+        }
+
+        for (std::shared_ptr<DataElement> frontier_elm: frontier_elms) {
+            for (std::shared_ptr<DataElement> next_elm: frontier_elm->sink) {
+                if (subgraph.count(next_elm)) {
+                    new_frontier_elms.insert(next_elm);
+                }
+            }
+        }
+
+        if (!new_frontier_elms.empty()) {
+            return new_frontier_elms;
+        }
+
+        // Otherwise, we allow the process to go beyond the subgraph.
+        new_frontier_elms.clear();
+        frontier_elms.clear();
+        for (RTLIL::Cell* cell: frontier) {
+            std::shared_ptr<DataElement> cell_elm = this->acyclic_node_map.at(cell);
+            frontier_elms.insert(cell_elm);
+        }
+
+        for (std::shared_ptr<DataElement> frontier_elm: frontier_elms) {
+            for (std::shared_ptr<DataElement> next_elm: frontier_elm->sink) {
+                new_frontier_elms.insert(next_elm);
+            }
+        }
+
+        return new_frontier_elms;
+    }
 };
 
 
