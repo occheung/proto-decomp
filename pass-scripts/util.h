@@ -580,6 +580,32 @@ struct VrModule {
             }
         }
     }
+
+    void update_data_interface(const Handshake& hs, std::set<Wire> data_iface) {
+        std::set<std::pair<Handshake, std::set<Wire>>> removable_inputs;
+        for (const auto& [handshake, hs_data_if]: this->data_inputs) {
+            if (handshake == hs) {
+                removable_inputs.insert({handshake, hs_data_if});
+            }
+        }
+
+        for (const std::pair<Handshake, std::set<Wire>>& removing_pair: removable_inputs) {
+            this->data_inputs.erase(removing_pair);
+            this->data_inputs.insert({hs, data_iface});
+        }
+
+        std::set<std::pair<Handshake, std::set<Wire>>> removable_outputs;
+        for (const auto& [handshake, hs_data_if]: this->data_outputs) {
+            if (handshake == hs) {
+                removable_outputs.insert({handshake, hs_data_if});
+            }
+        }
+
+        for (const std::pair<Handshake, std::set<Wire>>& removing_pair: removable_outputs) {
+            this->data_outputs.erase(removing_pair);
+            this->data_outputs.insert({hs, data_iface});
+        }
+    }
 };
 
 struct VrModuleCollection {
