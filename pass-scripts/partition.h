@@ -20,13 +20,13 @@ struct Partition {
     std::set<ValidReadyProto> vr_srcs;
     std::set<ValidReadyProto> vr_sinks;
 
-    const CircuitGraph circuit_graph;
+    const CircuitGraph* circuit_graph;
     FfInitVals* ff_init_vals_ptr;
 
     Partition(
         std::set<ValidReadyProto> iface_sources,
         std::set<ValidReadyProto> iface_sinks,
-        const CircuitGraph& circuit_graph,
+        const CircuitGraph* circuit_graph,
         FfInitVals* ff_init_vals_ptr
     ): 
         vr_srcs(iface_sources),
@@ -79,7 +79,7 @@ struct Partition {
                 work_list.pop_back();
 
                 // Propagate
-                for (auto [in_port, in_idx_vec]: this->circuit_graph.source_map.at(curr)) {
+                for (auto [in_port, in_idx_vec]: this->circuit_graph->source_map.at(curr)) {
                     // If the current cell is a DFF, ignore CLK
                     if (RTLIL::builtin_ff_cell_types().count(curr->type) && in_port == "\\CLK") {
                         continue;
@@ -136,7 +136,7 @@ struct Partition {
             while (!frontier.empty()) {
                 RTLIL::Cell* curr = frontier.back();
                 frontier.pop_back();
-                for (const auto& [port_out, out_idx_vec]: this->circuit_graph.sink_map.at(curr)) {
+                for (const auto& [port_out, out_idx_vec]: this->circuit_graph->sink_map.at(curr)) {
                     if (curr->output(port_out)) {
                         for (size_t i = 0; i < out_idx_vec.size(); ++i) {
                             CellPin src_pin = {curr, port_out, i};
@@ -179,6 +179,19 @@ struct Partition {
             newly_traversed_cells = trace_inputs(newly_traversed_cells);
             newly_traversed_cells = trace_outputs(newly_traversed_cells);
         }
+    }
+
+    std::set<ValidReadyProto> adjacent_interfaces(const Partition& other) const {
+        std::set<ValidReadyProto> ret;
+        for (ValidReadyProto src: this->vr_srcs) {
+            for (ValidReadyProto sink: other.vr_sinks) {
+                if (src == sink) {
+                    ret.insert(src);
+                }
+            }
+        }
+
+        return ret;
     }
 
     void to_shakeflow(std::string filename) const {
@@ -502,7 +515,7 @@ struct Partition {
         // Populate
         for (RTLIL::Cell* cell: combs) {
             dependency_graph[cell] = {};
-            for (const auto& [port, src_indices]: circuit_graph.source_map.at(cell)) {
+            for (const auto& [port, src_indices]: circuit_graph->source_map.at(cell)) {
                 if (cell->input(port)) {
                     for (Source src: src_indices) {
                         // Ignore constants & external inputs
@@ -560,14 +573,14 @@ struct Partition {
             std::set<CellPin> processed_pins;
             for (RTLIL::Cell* curr: cells) {
                 if (curr->type == "$_NOT_") {
-                    Source src_a = circuit_graph.source_map.at(curr).at("\\A").at(0);
+                    Source src_a = circuit_graph->source_map.at(curr).at("\\A").at(0);
                     std::string arg_a = src_to_str(src_a);
 
                     f << "let " << cell_pin_to_name({curr, "\\Y", 0}) << " = !" << arg_a << ";";
                     processed_pins.insert({curr, "\\Y", 0});
                 } else if (curr->type == "$_AND_") {
-                    Source src_a = circuit_graph.source_map.at(curr).at("\\A").at(0);
-                    Source src_b = circuit_graph.source_map.at(curr).at("\\B").at(0);
+                    Source src_a = circuit_graph->source_map.at(curr).at("\\A").at(0);
+                    Source src_b = circuit_graph->source_map.at(curr).at("\\B").at(0);
 
                     std::string arg_a = src_to_str(src_a);
                     std::string arg_b = src_to_str(src_b);
@@ -575,8 +588,8 @@ struct Partition {
                     f << "let " << cell_pin_to_name({curr, "\\Y", 0}) << " = " << arg_a << " & " << arg_b << ";";
                     processed_pins.insert({curr, "\\Y", 0});
                 } else if (curr->type == "$_OR_") {
-                    Source src_a = circuit_graph.source_map.at(curr).at("\\A").at(0);
-                    Source src_b = circuit_graph.source_map.at(curr).at("\\B").at(0);
+                    Source src_a = circuit_graph->source_map.at(curr).at("\\A").at(0);
+                    Source src_b = circuit_graph->source_map.at(curr).at("\\B").at(0);
 
                     std::string arg_a = src_to_str(src_a);
                     std::string arg_b = src_to_str(src_b);
@@ -584,8 +597,8 @@ struct Partition {
                     f << "let " << cell_pin_to_name({curr, "\\Y", 0}) << " = " << arg_a << " | " << arg_b << ";";
                     processed_pins.insert({curr, "\\Y", 0});
                 } else if (curr->type == "$_XOR_") {
-                    Source src_a = circuit_graph.source_map.at(curr).at("\\A").at(0);
-                    Source src_b = circuit_graph.source_map.at(curr).at("\\B").at(0);
+                    Source src_a = circuit_graph->source_map.at(curr).at("\\A").at(0);
+                    Source src_b = circuit_graph->source_map.at(curr).at("\\B").at(0);
 
                     std::string arg_a = src_to_str(src_a);
                     std::string arg_b = src_to_str(src_b);
@@ -593,9 +606,9 @@ struct Partition {
                     f << "let " << cell_pin_to_name({curr, "\\Y", 0}) << " = " << arg_a << " ^ " << arg_b << ";";
                     processed_pins.insert({curr, "\\Y", 0});
                 } else if (curr->type == "$_MUX_") {
-                    Source src_a = circuit_graph.source_map.at(curr).at("\\A").at(0);
-                    Source src_b = circuit_graph.source_map.at(curr).at("\\B").at(0);
-                    Source src_s = circuit_graph.source_map.at(curr).at("\\S").at(0);
+                    Source src_a = circuit_graph->source_map.at(curr).at("\\A").at(0);
+                    Source src_b = circuit_graph->source_map.at(curr).at("\\B").at(0);
+                    Source src_s = circuit_graph->source_map.at(curr).at("\\S").at(0);
 
                     std::string arg_a = src_to_str(src_a);
                     std::string arg_b = src_to_str(src_b);
@@ -623,10 +636,10 @@ struct Partition {
                     if (ff_data.pol_ce) {
                         f << "!";
                     }
-                    f << src_to_str(circuit_graph.source_map.at(dff).at("\\EN").at(0)) << " => state[" << state_idx << "], ";
+                    f << src_to_str(circuit_graph->source_map.at(dff).at("\\EN").at(0)) << " => state[" << state_idx << "], ";
                     f << "default => ";
                 }
-                f << src_to_str(circuit_graph.source_map.at(dff).at("\\D").at(0));
+                f << src_to_str(circuit_graph->source_map.at(dff).at("\\D").at(0));
 
                 if (ff_data.has_ce) {
                     f << ",)";
