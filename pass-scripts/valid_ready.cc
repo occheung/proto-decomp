@@ -1272,72 +1272,83 @@ struct ValidReadyPass : public Pass {
         );
 
         // Convert into partition after consolidating the handshake interfaces
+        std::map<ValidReadyProto, Handshake> handshake_map;
         std::vector<Partition> partitioned_modules;
+
+        auto vr_module_to_partition = [&](
+            const VrModule& vr_module
+        ) -> Partition {
+            std::set<ValidReadyProto> ingress_ifaces;
+            std::set<ValidReadyProto> egress_ifaces;
+            for (const auto& [ingress_handshake, ingress_wires]: vr_module.data_inputs) {
+                // Search for valid
+                CellPin valid;
+                bool found_valid = false;
+                for (const auto& [ctrl_ingress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
+                    if (ctrl_ingress_handshake == ingress_handshake) {
+                        found_valid = true;
+                        valid = ctrl_in;
+                    }
+                }
+
+                CellPin ready;
+                bool found_ready = false;
+                for (const auto& [ctrl_ingress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
+                    if (ctrl_ingress_handshake == ingress_handshake) {
+                        found_ready = true;
+                        ready = ctrl_out;
+                    }
+                }
+
+                if (!(found_valid && found_ready)) {
+                    log_error("Supplied invalid valid/ready module to partition\n");
+                }
+
+                handshake_map.insert({{valid, ready, ingress_wires}, ingress_handshake});
+
+                ingress_ifaces.insert({
+                    valid, ready, ingress_wires
+                });
+            }
+
+            for (const auto& [egress_handshake, egress_wires]: vr_module.data_outputs) {
+                // Search for valid
+                CellPin valid;
+                bool found_valid = false;
+                for (const auto& [ctrl_egress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
+                    if (ctrl_egress_handshake == egress_handshake) {
+                        found_valid = true;
+                        valid = ctrl_out;
+                    }
+                }
+
+                CellPin ready;
+                bool found_ready = false;
+                for (const auto& [ctrl_egress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
+                    if (ctrl_egress_handshake == egress_handshake) {
+                        found_ready = true;
+                        ready = ctrl_in;
+                    }
+                }
+
+                if (!(found_valid && found_ready)) {
+                    log_error("Supplied invalid valid/ready module to partition\n");
+                }
+
+                handshake_map.insert({{valid, ready, egress_wires}, egress_handshake});
+
+                egress_ifaces.insert({
+                    valid, ready, egress_wires
+                });
+            }
+
+            return Partition(ingress_ifaces, egress_ifaces, &circuit_graph, &ff_init_vals);
+        };
         {
-            for (const VrModule& vr_module: vr_modules.inner) {
-                // Act as an adapter to the following constructor
-                std::set<ValidReadyProto> ingress_ifaces;
-                std::set<ValidReadyProto> egress_ifaces;
-                for (const auto& [ingress_handshake, ingress_wires]: vr_module.data_inputs) {
-                    // Search for valid
-                    CellPin valid;
-                    bool found_valid = false;
-                    for (const auto& [ctrl_ingress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
-                        if (ctrl_ingress_handshake == ingress_handshake) {
-                            found_valid = true;
-                            valid = ctrl_in;
-                        }
-                    }
-
-                    CellPin ready;
-                    bool found_ready = false;
-                    for (const auto& [ctrl_ingress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
-                        if (ctrl_ingress_handshake == ingress_handshake) {
-                            found_ready = true;
-                            ready = ctrl_out;
-                        }
-                    }
-
-                    if (!(found_valid && found_ready)) {
-                        log_error("Supplied invalid valid/ready module to partition\n");
-                    }
-
-                    ingress_ifaces.insert({
-                        valid, ready, ingress_wires
-                    });
-                }
-
-                for (const auto& [egress_handshake, egress_wires]: vr_module.data_outputs) {
-                    // Search for valid
-                    CellPin valid;
-                    bool found_valid = false;
-                    for (const auto& [ctrl_egress_handshake, ctrl_out]: vr_module.ctrl_outputs) {
-                        if (ctrl_egress_handshake == egress_handshake) {
-                            found_valid = true;
-                            valid = ctrl_out;
-                        }
-                    }
-
-                    CellPin ready;
-                    bool found_ready = false;
-                    for (const auto& [ctrl_egress_handshake, ctrl_in]: vr_module.ctrl_inputs) {
-                        if (ctrl_egress_handshake == egress_handshake) {
-                            found_ready = true;
-                            ready = ctrl_in;
-                        }
-                    }
-
-                    if (!(found_valid && found_ready)) {
-                        log_error("Supplied invalid valid/ready module to partition\n");
-                    }
-
-                    egress_ifaces.insert({
-                        valid, ready, egress_wires
-                    });
-                }
-
-                partitioned_modules.push_back(
-                    Partition(ingress_ifaces, egress_ifaces, circuit_graph, &ff_init_vals));
+            for (int i = 0; i < GetSize(vr_modules.inner); ++i) {
+                partitioned_modules.push_back(vr_module_to_partition(vr_modules.inner[i]));
+            }
+        }
             }
         }
 
