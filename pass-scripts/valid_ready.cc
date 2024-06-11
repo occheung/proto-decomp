@@ -1390,7 +1390,11 @@ struct ValidReadyPass : public Pass {
         compute_interference();
 
         for (int i = 0; i < GetSize(partitioned_modules); ++i) {
-            for (int j = 0; j < i; ++j) {
+            for (int j = 0; j < GetSize(partitioned_modules); ++j) {
+                if (i == j) {
+                    continue;
+                }
+
                 std::set<ValidReadyProto> adjacent_handshakes = partitioned_modules[i].adjacent_interfaces(partitioned_modules[j]);
                 if (adjacent_handshakes.empty()) {
                     continue;
@@ -1461,6 +1465,16 @@ struct ValidReadyPass : public Pass {
             std::stringstream ss;
             ss << "synth_module" << i;
             partitioned_modules[i].to_shakeflow(ss.str());
+            {
+                std::stringstream ss_end;
+                ss_end << "select -set " << ss.str() << " ";
+
+                for (RTLIL::Cell* data_comp: partitioned_modules[i].cells) {
+                    ss_end << "c:" << data_comp->name.c_str() << " ";
+                }
+
+                Pass::call(design, ss_end.str().c_str());
+            }
         }
     }
 } ValidReadyPass;
