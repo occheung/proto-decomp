@@ -546,7 +546,7 @@ struct VrModule {
                     other_data_srcs.insert(wire_src);
                 }
 
-                if (circuit_graph.reachable(
+                if (circuit_graph.cyclic_first_reachable(
                     data_srcs, other_data_srcs
                 )) {
                     // Other handshake data depends on this handshake data

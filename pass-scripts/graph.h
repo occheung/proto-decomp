@@ -389,6 +389,94 @@ struct CircuitGraph {
         return false;
     }
 
+    // Return true if any sources manage to reach the sinks BEFORE any sinks
+    // reach the sources
+    bool cyclic_first_reachable(
+        std::set<CellPin> srcs,
+        std::set<CellPin> sinks
+    ) const {
+        enum PropSource {
+            SOURCE, SINK
+        };
+        std::deque<std::pair<CellPin, PropSource>> work_list;
+        std::set<CellPin> visited_from_src;
+        std::set<CellPin> visited_from_sink;
+
+        // Populate work list
+        for (CellPin src: srcs) {
+            work_list.push_back({src, SOURCE});
+        }
+        for (CellPin sink: sinks) {
+            work_list.push_back({sink, SINK});
+        }
+
+        while (!work_list.empty()) {
+            auto [curr_pin, prop_src] = work_list.front();
+            work_list.pop_front();
+
+            // Loop avoidance
+            if (prop_src == PropSource::SOURCE) {
+                if (visited_from_src.count(curr_pin)) {
+                    continue;
+                }
+                visited_from_src.insert(curr_pin);
+            } else {
+                if (visited_from_sink.count(curr_pin)) {
+                    continue;
+                }
+                visited_from_sink.insert(curr_pin);
+            }
+
+            // Check if we have propagated to the opposite side
+            if (prop_src == PropSource::SOURCE) {
+                if (sinks.count(curr_pin)) {
+                    // A source have reached a sink before any sink reaches the sources
+                    return true;
+                }
+            } else {
+                if (srcs.count(curr_pin)) {
+                    // A sink have reached a source before any source reaches the sink
+                    return false;
+                }
+            }
+
+            // Find the next cell
+            auto [curr_cell, curr_port, curr_idx] = curr_pin;
+            for (Sink next: this->sink_map.at(curr_cell).at(curr_port).at(curr_idx)) {
+                if (std::holds_alternative<RTLIL::SigBit>(next)) {
+                    continue;
+                }
+
+                auto [next_cell, next_src_port, next_src_idx] = std::get<CellPin>(next);
+                for (auto [out_port, out_sig]: next_cell->connections()) {
+                    if (next_cell->output(out_port)) {
+                        // If we are propagating through DFF from port D,
+                        // only propagate to the corresponding bit of port Q
+                        if (RTLIL::builtin_ff_cell_types().count(next_cell->type) && next_src_port == "\\D") {
+                            if (out_port != "\\Q") {
+                                continue;
+                            }
+                            work_list.push_back(
+                                {{next_cell, "\\Q", next_src_idx}, prop_src}
+                            );
+                        }
+
+                        else {
+                            for (int i = 0; i < GetSize(out_sig); ++i) {
+                                work_list.push_back(
+                                    {{next_cell, out_port, i}, prop_src}
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Source have simply failed to reach the sink
+        return false;
+    }
+
     std::set<CellPin> get_dominated_frontier(
         // The returned leaves must be at least partially dependent on the
         // mandatory sources
@@ -715,6 +803,44 @@ struct CircuitGraph {
 
         return make_pair(first_divergence, depth);
     };
+
+    std::set<RTLIL::Cell*> get_first_convergence(
+        const std::set<RTLIL::Cell*>& ctrl_to_data_path,
+        const std::set<RTLIL::Cell*>& opposite_ctrl_to_data_path
+    ) const {
+        // Compute the intersection of 2 sets
+        std::set<RTLIL::Cell*> set_intersect;
+        for (RTLIL::Cell* data_path_cell: ctrl_to_data_path) {
+            if (opposite_ctrl_to_data_path.count(data_path_cell)) {
+                set_intersect.insert(data_path_cell);
+            }
+        }
+
+        // Find the root(s) of the set, which are all the cells that have no
+        // predecessors within the intersecting set
+        std::set<RTLIL::Cell*> roots;
+        for (RTLIL::Cell* common_cell: set_intersect) {
+            bool found_predecessor = false;
+            for (const auto& [in_port, in_port_sig_info]: this->source_map.at(common_cell)) {
+                for (Source src: in_port_sig_info) {
+                    if (std::holds_alternative<RTLIL::SigBit>(src)) {
+                        continue;
+                    }
+
+                    RTLIL::Cell* src_cell = std::get<0>(std::get<CellPin>(src));
+                    if (set_intersect.count(src_cell)) {
+                        found_predecessor = true;
+                    }
+                }
+            }
+
+            if (!found_predecessor) {
+                roots.insert(common_cell);
+            }
+        }
+
+        return roots;
+    }
 };
 
 #endif

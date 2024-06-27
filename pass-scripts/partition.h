@@ -13,6 +13,7 @@ PRIVATE_NAMESPACE_BEGIN
 
 struct Partition {
     std::set<RTLIL::Cell*> cells;
+    std::set<RTLIL::Cell*> acceptable_overlaps;
 
     std::set<RTLIL::SigBit> external_inputs;
     std::map<CellPin, RTLIL::SigBit> external_outputs;
@@ -26,9 +27,12 @@ struct Partition {
     Partition(
         std::set<ValidReadyProto> iface_sources,
         std::set<ValidReadyProto> iface_sinks,
+        std::set<RTLIL::Cell*> potential_common_sinks,
+        std::set<ValidReadyProto> other_interfaces,
         const CircuitGraph* circuit_graph,
         FfInitVals* ff_init_vals_ptr
     ): 
+        acceptable_overlaps(potential_common_sinks),
         vr_srcs(iface_sources),
         vr_sinks(iface_sinks),
         circuit_graph(circuit_graph),
@@ -61,6 +65,77 @@ struct Partition {
 
             for (auto [data_src, _data_sink]: data_ifaces) {
                 outputs.insert(std::get<0>(data_src));
+            }
+        }
+
+        // // Find the set of acceptable overlaps
+        // // Direct descendents of both valid and ready of the same interface could be overlapped by both interfaces
+        // //
+        // // FIXME: Use first convergence
+        // {
+        //     for (auto [valid_pin, ready_pin, data_ifaces]: iface_sources) {
+        //         auto [valid_cell, valid_port, valid_idx] = valid_pin;
+        //         auto [ready_cell, ready_port, ready_idx] = ready_pin;
+        //         std::vector<Sink> valid_sinks = this->circuit_graph->sink_map.at(valid_cell).at(valid_port).at(valid_idx);
+        //         std::vector<Sink> ready_sinks = this->circuit_graph->sink_map.at(ready_cell).at(ready_port).at(ready_idx);
+
+        //         for (Sink valid_sink: valid_sinks) {
+        //             if (std::holds_alternative<RTLIL::SigBit>(valid_sink)) {
+        //                 continue;
+        //             }
+
+        //             for (Sink ready_sink: ready_sinks) {
+        //                 if (std::holds_alternative<RTLIL::SigBit>(ready_sink)) {
+        //                     continue;
+        //                 }
+
+        //                 RTLIL::Cell* valid_sink_cell = std::get<0>(std::get<CellPin>(valid_sink));
+        //                 RTLIL::Cell* ready_sink_cell = std::get<0>(std::get<CellPin>(ready_sink));
+
+        //                 if (valid_sink_cell == ready_sink_cell) {
+        //                     this->acceptable_overlaps.insert(valid_sink_cell);
+        //                 }
+        //             }
+        //         }
+        //     }
+
+        //     for (auto [valid_pin, ready_pin, data_ifaces]: iface_sinks) {
+        //         auto [valid_cell, valid_port, valid_idx] = valid_pin;
+        //         auto [ready_cell, ready_port, ready_idx] = ready_pin;
+        //         std::vector<Sink> valid_sinks = this->circuit_graph->sink_map.at(valid_cell).at(valid_port).at(valid_idx);
+        //         std::vector<Sink> ready_sinks = this->circuit_graph->sink_map.at(ready_cell).at(ready_port).at(ready_idx);
+
+        //         for (Sink valid_sink: valid_sinks) {
+        //             if (std::holds_alternative<RTLIL::SigBit>(valid_sink)) {
+        //                 continue;
+        //             }
+
+        //             for (Sink ready_sink: ready_sinks) {
+        //                 if (std::holds_alternative<RTLIL::SigBit>(ready_sink)) {
+        //                     continue;
+        //                 }
+
+        //                 RTLIL::Cell* valid_sink_cell = std::get<0>(std::get<CellPin>(valid_sink));
+        //                 RTLIL::Cell* ready_sink_cell = std::get<0>(std::get<CellPin>(ready_sink));
+
+        //                 if (valid_sink_cell == ready_sink_cell) {
+        //                     this->acceptable_overlaps.insert(valid_sink_cell);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
+        // Use the other interfaces to find out cell blockers
+        //
+        // These interfaces clearly belong to other interfaces
+        std::set<RTLIL::Cell*> other_module_cells;
+        for (auto [other_valid_pin, other_ready_pin, other_data_wires]: other_interfaces) {
+            other_module_cells.insert(std::get<0>(other_valid_pin));
+            other_module_cells.insert(std::get<0>(other_ready_pin));
+
+            for (auto [_other_data_src_pin, other_data_sink_pin]: other_data_wires) {
+                other_module_cells.insert(std::get<0>(other_data_sink_pin));
             }
         }
 
@@ -115,6 +190,19 @@ struct Partition {
                                 continue;
                             }
 
+                            // USe the other interfaces to deduce cells that are clearly not part of the module
+                            if (other_module_cells.count(curr_src_cell)) {
+                                continue;
+                            }
+
+                            // Skip propagation if the current cell is part of some common sink cells
+                            if (this->acceptable_overlaps.count(curr)) {
+                                // Only include the cell into the collection
+                                // Skip propagation
+                                this->cells.insert(curr_src_cell);
+                                continue;
+                            }
+
                             work_list.push_back(curr_src_cell);
                             this->cells.insert(curr_src_cell);
                             newly_found_cells.insert(curr_src_cell);
@@ -136,6 +224,11 @@ struct Partition {
             while (!frontier.empty()) {
                 RTLIL::Cell* curr = frontier.back();
                 frontier.pop_back();
+
+                // Do not propagate through potentially common cells
+                if (this->acceptable_overlaps.count(curr)) {
+                    continue;
+                }
                 for (const auto& [port_out, out_idx_vec]: this->circuit_graph->sink_map.at(curr)) {
                     if (curr->output(port_out)) {
                         for (size_t i = 0; i < out_idx_vec.size(); ++i) {
@@ -147,11 +240,23 @@ struct Partition {
                                     CellPin sink_pin = std::get<CellPin>(sink);
                                     RTLIL::Cell* sink_cell = std::get<0>(sink_pin);
 
+                                    // Reject cells that clealry does not belong to the module
+                                    if (other_module_cells.count(sink_cell)) {
+                                        continue;
+                                    }
+
                                     if (this->cells.count(sink_cell) == 0) {
-                                        frontier.push_back(sink_cell);
-                                        // Add to cells
-                                        this->cells.insert(sink_cell);
-                                        newly_found_cells.insert(sink_cell);
+                                        // Avoid propagation beyond the potentially overlapping cells
+                                        if (this->acceptable_overlaps.count(sink_cell)) {
+                                            // Only add to cells collection when happens
+                                            this->cells.insert(sink_cell);
+
+                                        } else {
+                                            frontier.push_back(sink_cell);
+                                            // Add to cells
+                                            this->cells.insert(sink_cell);
+                                            newly_found_cells.insert(sink_cell);
+                                        }
                                     }
                                 }
                                 else {
@@ -177,7 +282,9 @@ struct Partition {
 
         while (!newly_traversed_cells.empty()) {
             newly_traversed_cells = trace_inputs(newly_traversed_cells);
+            log("Provisional module size: %d\n", GetSize(this->cells));
             newly_traversed_cells = trace_outputs(newly_traversed_cells);
+            log("Provisional module size: %d\n", GetSize(this->cells));
         }
     }
 
@@ -185,6 +292,14 @@ struct Partition {
         std::set<ValidReadyProto> ret;
         for (ValidReadyProto src: this->vr_srcs) {
             for (ValidReadyProto sink: other.vr_sinks) {
+                if (src == sink) {
+                    ret.insert(src);
+                }
+            }
+        }
+
+        for (ValidReadyProto src: this->vr_sinks) {
+            for (ValidReadyProto sink: other.vr_srcs) {
                 if (src == sink) {
                     ret.insert(src);
                 }
@@ -689,6 +804,47 @@ struct Partition {
 
         end_main_fsm();
         compose();
+    }
+
+    void write_interface_log() const {
+        log("Begin partition\n");
+
+        for (auto [valid_pin, ready_pin, data_if]: this->vr_srcs) {
+            log("Ingress interfaces:\n");
+            auto [valid_cell, valid_port, _valid_idx] = valid_pin;
+            log("Valid: %s:%s\n", log_id(valid_cell), log_id(valid_port));
+            auto [ready_cell, ready_port, _ready_idx] = ready_pin;
+            log("Ready: %s:%s\n", log_id(ready_cell), log_id(ready_port));
+
+            log("Data sinks:\n");
+            for (auto [_from_pin, to_pin]: data_if) {
+                auto [to_cell, to_port, to_idx] = to_pin;
+                log("%s:%s:%d\n", log_id(to_cell), log_id(to_port), to_idx);
+            }
+            log("\n");
+        }
+
+        for (auto [valid_pin, ready_pin, data_if]: this->vr_sinks) {
+            log("Egress interfaces:\n");
+            auto [valid_cell, valid_port, _valid_idx] = valid_pin;
+            log("Valid: %s:%s\n", log_id(valid_cell), log_id(valid_port));
+            auto [ready_cell, ready_port, _ready_idx] = ready_pin;
+            log("Ready: %s:%s\n", log_id(ready_cell), log_id(ready_port));
+
+            log("Data sinks:\n");
+            for (auto [_from_pin, to_pin]: data_if) {
+                auto [to_cell, to_port, to_idx] = to_pin;
+                log("%s:%s:%d\n", log_id(to_cell), log_id(to_port), to_idx);
+            }
+            log("\n");
+        }
+
+        log("%d Potential overlapping cells: \n", GetSize(this->acceptable_overlaps));
+        for (RTLIL::Cell* potential_overlap_cell: this->acceptable_overlaps) {
+            log("%s\n", log_id(potential_overlap_cell));
+        }
+
+        log("\n\n");
     }
 };
 

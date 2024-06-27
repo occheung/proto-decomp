@@ -354,11 +354,11 @@ struct ValidReadyPass : public Pass {
                                     other_ctrl_bit, opposite_half_path_set,
                                     opposite_ctrl_bit_to_data_path, ctrl_bit_to_data_path_set);
 
-                                LOG("Cell %s Port %s reaches Cell %s CE\n",
+                                log("Cell %s Port %s reaches Cell %s CE\n",
                                     std::get<0>(ctrl_bit)->name.c_str(),
                                     std::get<1>(ctrl_bit).c_str(),
                                     log_id(data_reg));
-                                LOG("Other ctrl pin: Cell %s; Port %s\n",
+                                log("Other ctrl pin: Cell %s; Port %s\n",
                                     std::get<0>(other_ctrl_bit)->name.c_str(),
                                     std::get<1>(other_ctrl_bit).c_str());
 
@@ -428,11 +428,11 @@ struct ValidReadyPass : public Pass {
                                 other_ctrl_bit, {inter_dff, "\\EN", 0});
                             
                             if ((!ctrl_data_path_set.empty()) && (!opposite_ctrl_data_path_set.empty())) {
-                                LOG("Cell %s Port %s reaches intermediate DFFE %s CE\n",
+                                log("Cell %s Port %s reaches intermediate DFFE %s CE\n",
                                     std::get<0>(ctrl_bit)->name.c_str(),
                                     std::get<1>(ctrl_bit).c_str(),
                                     log_id(inter_dff));
-                                LOG("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
+                                log("Cell %s Port %s also reaches intermediate DFFE %s CE\n",
                                     std::get<0>(other_ctrl_bit)->name.c_str(),
                                     std::get<1>(other_ctrl_bit).c_str(),
                                     log_id(inter_dff));
@@ -837,7 +837,7 @@ struct ValidReadyPass : public Pass {
             std::stringstream ss;
             ss << "select -set handshake_bits ";
 
-            for (const auto& [eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
+            for (const auto& [eligible_pair, _data_components]: eligible_ctrl_bit_pairs) {
                 auto [handshake_src, handshake_sink] = eligible_pair.decompose();
                 auto [eligible_src, dffe_srcs] = handshake_src;
                 auto [eligible_sink, dffe_sinks] = handshake_sink;
@@ -847,6 +847,20 @@ struct ValidReadyPass : public Pass {
             }
 
             Pass::call(design, ss.str().c_str());
+        }
+
+        {
+            int handshake_idx = 0;
+            for (const auto& [_eligible_pair, data_components]: eligible_ctrl_bit_pairs) {
+                std::stringstream ss;
+                ss << "select -set handshake_data_comp" << handshake_idx << " ";
+                for (auto [data_comp, _priority]: data_components) {
+                    ss << "c:" << data_comp->name.c_str() << " ";
+                }
+
+                Pass::call(design, ss.str().c_str());
+                handshake_idx++;
+            }
         }
 
         if (!PASS_DECOMP) {
@@ -863,11 +877,44 @@ struct ValidReadyPass : public Pass {
                 appearance_counter[data_cell].insert(handshake);
             }
         }
+        log("Unique data cell found: %d\n", GetSize(appearance_counter));
+
+        // Create a set of initial subgraphs
+        // This encapsulate the absolute minimum or maximum of the frontier
+        // We really only need the maximum to stop propagation of frontier
+        std::map<Handshake, std::set<std::shared_ptr<DataElement>>> initial_subgraphs;
+        for (const auto& [handshake, data_components]: eligible_ctrl_bit_pairs) {
+            // Acquire pure data components
+            std::set<RTLIL::Cell*> data_cells;
+            for (auto [cell, _priority]: data_components) {
+                data_cells.insert(cell);
+            }
+            initial_subgraphs[handshake] = data_path.get_subgraph(data_cells);
+        }
+
+        {
+            int hs_idx = 0;
+            for (const auto& [_hs, data_elms]: initial_subgraphs) {
+                std::stringstream ss;
+                ss << "select -set initial_subgraph" << hs_idx << " ";
+                for (std::shared_ptr<DataElement> data_elm: data_elms) {
+                    for (RTLIL::Cell* subgraph_node: data_elm->subgraph_nodes) {
+                        ss << "c:" << subgraph_node->name.c_str() << " ";
+                    }
+                }
+
+                Pass::call(design, ss.str().c_str());
+                ++hs_idx;
+            }
+        }
 
         // Create a provisional subgraph for every handshake entry
         // using the least appeared elements
         std::map<Handshake, std::set<std::shared_ptr<DataElement>>> provisional_subgraphs;
         std::map<Handshake, std::set<std::shared_ptr<DataElement>>> finalized_subgraphs;
+
+        // The collection of frontiers associated to the corresponding handshakes
+        std::map<Handshake, std::vector<std::set<std::shared_ptr<DataElement>>>> frontier_collections;
 
         auto get_provisional_subgraph = [&](
             const Handshake& curr_handshake
@@ -966,58 +1013,75 @@ struct ValidReadyPass : public Pass {
             std::set<std::shared_ptr<DataElement>> data_subgraph_input_raw = get_datapath_input(smallest_subgraph);
             log("Got %ld datapath inputs\n", data_subgraph_input_raw.size());
 
-            // Replace inputs with successors, until all inputs are not successors or predecessors
-            auto promote_inputs = [&](
-                const std::set<std::shared_ptr<DataElement>>& subgraph_nodes,
-                const std::set<std::shared_ptr<DataElement>>& data_inputs
-            ) {
-                // Find if some input is a successor of some other inputs
-                std::set<std::shared_ptr<DataElement>> frontier = data_inputs;
-                std::set<std::shared_ptr<DataElement>> new_frontier;
-                std::set<std::shared_ptr<DataElement>> removed_frontier;
+            // // Replace inputs with successors, until all inputs are not successors or predecessors
+            // auto promote_inputs = [&](
+            //     const std::set<std::shared_ptr<DataElement>>& subgraph_nodes,
+            //     const std::set<std::shared_ptr<DataElement>>& data_inputs
+            // ) {
+            //     // Find if some input is a successor of some other inputs
+            //     std::set<std::shared_ptr<DataElement>> frontier = data_inputs;
+            //     std::set<std::shared_ptr<DataElement>> new_frontier;
+            //     std::set<std::shared_ptr<DataElement>> removed_frontier;
 
-                do {
-                    // Update frontier
-                    for (std::shared_ptr<DataElement> cell: removed_frontier) {
-                        frontier.erase(cell);
-                    }
-                    frontier.insert(new_frontier.begin(), new_frontier.end());
-                    new_frontier.clear();
+            //     do {
+            //         // Update frontier
+            //         for (std::shared_ptr<DataElement> cell: removed_frontier) {
+            //             frontier.erase(cell);
+            //         }
+            //         frontier.insert(new_frontier.begin(), new_frontier.end());
+            //         new_frontier.clear();
 
-                    for (std::shared_ptr<DataElement> frontier_src: frontier) {
-                        for (std::shared_ptr<DataElement> frontier_sink: frontier) {
-                            if (frontier_src == frontier_sink) {
-                                continue;
-                            }
-                            if (!data_path.get_inter_nodes(frontier_src, frontier_sink).empty()) {
-                                // Move the frontier to its descendents
-                                removed_frontier.insert(frontier_src);
-                                for (std::shared_ptr<DataElement> next: frontier_src->sink) {
-                                    if (subgraph_nodes.count(next)) {
-                                        new_frontier.insert(next);
-                                    }
-                                }
-                            }
-                        }
-                    }
+            //         for (std::shared_ptr<DataElement> frontier_src: frontier) {
+            //             for (std::shared_ptr<DataElement> frontier_sink: frontier) {
+            //                 if (frontier_src == frontier_sink) {
+            //                     continue;
+            //                 }
+            //                 if (!data_path.get_subgraph_inter_nodes(frontier_src, frontier_sink, subgraph_nodes).empty()) {
+            //                     // Move the frontier to its descendents
+            //                     removed_frontier.insert(frontier_src);
+            //                     for (std::shared_ptr<DataElement> next: frontier_src->sink) {
+            //                         if (subgraph_nodes.count(next)) {
+            //                             new_frontier.insert(next);
+            //                         }
+            //                     }
+            //                 }
+            //             }
+            //         }
 
-                    // Do not propagate to removed frontier
-                    for (std::shared_ptr<DataElement> removed_node: removed_frontier) {
-                        new_frontier.erase(removed_node);
-                    }
-                } while (!new_frontier.empty());
+            //         // Do not propagate to removed frontier
+            //         for (std::shared_ptr<DataElement> removed_node: removed_frontier) {
+            //             new_frontier.erase(removed_node);
+            //         }
+            //     } while (!new_frontier.empty());
 
-                // No new data elements to be added
-                // Remove anything that is still in the removed frontier
-                for (std::shared_ptr<DataElement> cell: removed_frontier) {
-                    frontier.erase(cell);
-                }
+            //     // No new data elements to be added
+            //     // Remove anything that is still in the removed frontier
+            //     for (std::shared_ptr<DataElement> cell: removed_frontier) {
+            //         frontier.erase(cell);
+            //     }
 
-                return frontier;
-            };
+            //     return frontier;
+            // };
 
-            std::set<std::shared_ptr<DataElement>> data_subgraph_input = promote_inputs(
+            std::set<std::shared_ptr<DataElement>> data_subgraph_input = data_path.promote_inputs(
                 smallest_subgraph, data_subgraph_input_raw);
+            log("Computed subgraph input of size %d\n", GetSize(data_subgraph_input));
+            // for (std::shared_ptr<DataElement> single_subgraph_input: data_subgraph_input) {
+            //     log("Data cells: \n");
+            //     for (RTLIL::Cell* inner: single_subgraph_input->subgraph_nodes) {
+            //         log("%s\n", log_id(inner));
+            //     }
+            //     log("\n");
+            // }
+
+            // log("\n\n");
+
+            // Create a finite list of frontiers for each handshake interface, sorted
+            std::vector<std::set<std::shared_ptr<DataElement>>> data_elm_iface_list = data_path.collect_frontiers(
+                smallest_subgraph, data_subgraph_input
+            );
+            log("Reporting %d potential interfaces\n", GetSize(data_elm_iface_list));
+            frontier_collections[simplest_handshake] = data_elm_iface_list;
 
             std::set<Wire> data_cut_if = data_path.get_intersection_wires(data_subgraph_input);
             log("Data interface: \n");
@@ -1055,6 +1119,59 @@ struct ValidReadyPass : public Pass {
                 collection.erase(simplest_handshake);
             }
         } while (!provisional_subgraphs.empty());
+
+        // DEBUG
+        {
+            int hs_idx = 0;
+            for (const auto& [_hs, data_if]: module_data_interfaces) {
+                std::stringstream ss;
+                ss << "select -set initial_data_if" << hs_idx << " ";
+                for (auto [from_cell, to_cell]: data_if) {
+                    ss << "c:" << std::get<0>(to_cell)->name.c_str() << " ";
+                }
+
+                Pass::call(design, ss.str().c_str());
+                ++hs_idx;
+            }
+
+            hs_idx = 0;
+            for (const auto& [hs, data_if_vec]: frontier_collections) {
+                hs.write_ctrl_pins();
+                for (int frontier_idx = 0; frontier_idx < GetSize(data_if_vec); ++frontier_idx) {
+                    {
+                        std::stringstream ss;
+                        ss << "select -set frontier_data_if" << hs_idx << "_" << frontier_idx << " ";
+                        log("Created set: %s\n", ss.str().c_str());
+                        std::set<Wire> data_if = data_path.get_intersection_wires(data_if_vec.at(frontier_idx));
+                        std::set<RTLIL::Cell*> data_if_sink;
+                        for (auto [_from_cell, to_cell]: data_if) {
+                            ss << "c:" << std::get<0>(to_cell)->name.c_str() << " ";
+                            data_if_sink.insert(std::get<0>(to_cell));
+                        }
+                        log("Has data sink size: %d\n", GetSize(data_if_sink));
+
+                        Pass::call(design, ss.str().c_str());
+                    }
+
+                    {
+                        std::stringstream ss;
+                        ss << "select -set frontier_data_if_src" << hs_idx << "_" << frontier_idx << " ";
+                        log("Created set: %s\n", ss.str().c_str());
+                        std::set<Wire> data_if = data_path.get_intersection_wires(data_if_vec.at(frontier_idx));
+                        std::set<RTLIL::Cell*> data_if_sink;
+                        for (auto [from_cell, _to_cell]: data_if) {
+                            ss << "c:" << std::get<0>(from_cell)->name.c_str() << " ";
+                            data_if_sink.insert(std::get<0>(from_cell));
+                        }
+                        log("Has data source size: %d\n", GetSize(data_if_sink));
+
+                        Pass::call(design, ss.str().c_str());
+                    }
+                }
+                ++hs_idx;
+            }
+        }
+        // DEBUG END
 
         // Prune interfaces that are self-overlapping
         // Idea: If the FFs belong to the same module interface, it should conclude
@@ -1272,17 +1389,75 @@ struct ValidReadyPass : public Pass {
         PseudoModuleCollection pseudo_modules(ctrl_pin_connectivity);
         pseudo_modules.write_log();
 
+        // // FIXME: Remove debug
+        // // DEBUG
+        // {
+        //     // Replace the module data interfaces with hand selected interfaces
+        //     int hs_idx = 0;
+        //     for (auto& [hs, default_data_if]: module_data_interfaces) {
+        //         std::vector<std::set<std::shared_ptr<DataElement>>> hs_frontiers = frontier_collections.at(hs);
+        //         int frontier_idx;
+        //         if (hs_idx == 1) {
+        //             frontier_idx = 2;
+        //         } else {
+        //             frontier_idx = 5;
+        //         }
+
+        //         std::set<std::shared_ptr<DataElement>> frontier = hs_frontiers.at(frontier_idx);
+        //         std::set<Wire> selected_data_if = data_path.get_intersection_wires(frontier);
+
+        //         default_data_if.clear();
+        //         default_data_if = selected_data_if;
+
+        //         ++hs_idx;
+        //     }
+        // }
+        // // DEBUG END
+
         // Guess Valid/ready direction
         VrModuleCollection vr_modules(
             pseudo_modules, module_data_interfaces, circuit_graph
         );
+
+        // Collect possible common sinks
+        std::set<RTLIL::Cell*> potential_common_sinks;
+        for (const VrModule& vr_module: vr_modules.inner) {
+            for (auto [hs, _in_pin]: vr_module.ctrl_inputs) {
+                auto [ctrl0_info, ctrl1_info] = hs.decompose();
+                auto [ctrl0_cell, ctrl0_port, ctrl0_idx] = std::get<0>(ctrl0_info);
+                auto [ctrl1_cell, ctrl1_port, ctrl1_idx] = std::get<0>(ctrl1_info);
+
+                std::vector<Sink> ctrl0_pin_sinks = circuit_graph.sink_map.at(ctrl0_cell).at(ctrl0_port).at(ctrl0_idx);
+                std::vector<Sink> ctrl1_pin_sinks = circuit_graph.sink_map.at(ctrl1_cell).at(ctrl1_port).at(ctrl1_idx);
+
+                for (Sink ctrl0_sink: ctrl0_pin_sinks) {
+                    if (std::holds_alternative<RTLIL::SigBit>(ctrl0_sink)) {
+                        continue;
+                    }
+
+                    for (Sink ctrl1_sink: ctrl1_pin_sinks) {
+                        if (std::holds_alternative<RTLIL::SigBit>(ctrl1_sink)) {
+                            continue;
+                        }
+
+                        RTLIL::Cell* ctrl0_sink_cell = std::get<0>(std::get<CellPin>(ctrl0_sink));
+                        RTLIL::Cell* ctrl1_sink_cell = std::get<0>(std::get<CellPin>(ctrl1_sink));
+
+                        if (ctrl0_sink_cell == ctrl1_sink_cell) {
+                            potential_common_sinks.insert(ctrl0_sink_cell);
+                        }
+                    }
+                }
+            }
+        }
 
         // Convert into partition after consolidating the handshake interfaces
         std::map<ValidReadyProto, Handshake> handshake_map;
         std::vector<Partition> partitioned_modules;
 
         auto vr_module_to_partition = [&](
-            const VrModule& vr_module
+            const VrModule& vr_module,
+            const VrModuleCollection& vr_collection
         ) -> Partition {
             std::set<ValidReadyProto> ingress_ifaces;
             std::set<ValidReadyProto> egress_ifaces;
@@ -1348,11 +1523,112 @@ struct ValidReadyPass : public Pass {
                 });
             }
 
-            return Partition(ingress_ifaces, egress_ifaces, &circuit_graph, &ff_init_vals);
+            // Find all other handshakes that are neither ingress nor egress of the module
+            std::set<Handshake> module_handshakes;
+            for (const auto& [ingress_handshake, _in_pin]: vr_module.ctrl_inputs) {
+                module_handshakes.insert(ingress_handshake);
+            }
+
+            std::set<ValidReadyProto> other_module_ifaces;
+            // Look up the rest of the modules, find other handshakes
+            for (const VrModule& other_module: vr_collection.inner) {
+                // No need to explicitly make other_module not loop into vr_module
+                // Handhskae comparison would have rejected all handshakes
+
+                for (const auto& [ingress_hs, ingress_wires]: other_module.data_inputs) {
+                    // Make sure that the current handshake is not part of the vr_module
+                    if (module_handshakes.count(ingress_hs)) {
+                        continue;
+                    }
+
+                    // Search for valid
+                    CellPin valid;
+                    bool found_valid = false;
+                    for (const auto& [ctrl_ingress_handshake, ctrl_in]: other_module.ctrl_inputs) {
+                        if (ctrl_ingress_handshake == ingress_hs) {
+                            found_valid = true;
+                            valid = ctrl_in;
+                        }
+                    }
+
+                    CellPin ready;
+                    bool found_ready = false;
+                    for (const auto& [ctrl_ingress_handshake, ctrl_out]: other_module.ctrl_outputs) {
+                        if (ctrl_ingress_handshake == ingress_hs) {
+                            found_ready = true;
+                            ready = ctrl_out;
+                        }
+                    }
+
+                    if (!(found_valid && found_ready)) {
+                        log_error("Supplied invalid valid/ready module to partition\n");
+                    }
+
+                    other_module_ifaces.insert({
+                        valid, ready, ingress_wires
+                    });
+                }
+
+                for (const auto& [egress_hs, egress_wires]: other_module.data_outputs) {
+                    // Make sure that the current handshake is not part of the vr_module
+                    if (module_handshakes.count(egress_hs)) {
+                        continue;
+                    }
+
+                    // Search for valid
+                    CellPin valid;
+                    bool found_valid = false;
+                    for (const auto& [ctrl_egress_handshake, ctrl_out]: other_module.ctrl_outputs) {
+                        if (ctrl_egress_handshake == egress_hs) {
+                            found_valid = true;
+                            valid = ctrl_out;
+                        }
+                    }
+
+                    CellPin ready;
+                    bool found_ready = false;
+                    for (const auto& [ctrl_egress_handshake, ctrl_in]: other_module.ctrl_inputs) {
+                        if (ctrl_egress_handshake == egress_hs) {
+                            found_ready = true;
+                            ready = ctrl_in;
+                        }
+                    }
+
+                    if (!(found_valid && found_ready)) {
+                        log_error("Supplied invalid valid/ready module to partition\n");
+                    }
+
+                    other_module_ifaces.insert({
+                        valid, ready, egress_wires
+                    });
+                }
+            }
+
+            return Partition(ingress_ifaces, egress_ifaces, potential_common_sinks, other_module_ifaces, &circuit_graph, &ff_init_vals);
         };
         {
             for (int i = 0; i < GetSize(vr_modules.inner); ++i) {
-                partitioned_modules.push_back(vr_module_to_partition(vr_modules.inner[i]));
+                partitioned_modules.push_back(vr_module_to_partition(vr_modules.inner[i], vr_modules));
+            }
+
+            for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+                partitioned_modules.at(i).write_interface_log();
+            }
+
+            for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+                std::stringstream ss;
+                ss << "init_synth_module" << i;
+                partitioned_modules[i].to_shakeflow(ss.str());
+                {
+                    std::stringstream ss_end;
+                    ss_end << "select -set " << ss.str() << " ";
+
+                    for (RTLIL::Cell* data_comp: partitioned_modules[i].cells) {
+                        ss_end << "c:" << data_comp->name.c_str() << " ";
+                    }
+
+                    Pass::call(design, ss_end.str().c_str());
+                }
             }
         }
 
@@ -1370,10 +1646,14 @@ struct ValidReadyPass : public Pass {
         }
 
         // Check module size
-        auto compute_interference = [&] () {
+        auto compute_interference = [&] (
+            int log_idx
+        ) {
             for (int i = 0; i < GetSize(partitioned_modules); ++i) {
-                log("Module %d has %ld VR ingress and %ld VR egress\n", i, partitioned_modules[i].vr_srcs.size(), partitioned_modules[i].vr_sinks.size());
-                log("Module %d has %ld cells\n", i, partitioned_modules[i].cells.size());
+                if (i == log_idx) {
+                    log("Module %d has %ld VR ingress and %ld VR egress\n", i, partitioned_modules[i].vr_srcs.size(), partitioned_modules[i].vr_sinks.size());
+                    log("Module %d has %ld cells\n", i, partitioned_modules[i].cells.size());
+                }
                 for (int j = 0; j < GetSize(partitioned_modules); ++j) {
                     if (i == j) {
                         continue;
@@ -1381,15 +1661,50 @@ struct ValidReadyPass : public Pass {
                     std::set<RTLIL::Cell*> union_cells;
                     union_cells.insert(partitioned_modules[i].cells.begin(), partitioned_modules[i].cells.end());
                     union_cells.insert(partitioned_modules[j].cells.begin(), partitioned_modules[j].cells.end());
-                    size_t intersect_size = partitioned_modules[i].cells.size() + partitioned_modules[j].cells.size() - union_cells.size();
+
+                    // TODO: Reject acceptable overlaps
+                    std::set<RTLIL::Cell*> common_acceptable_overlaps;
+                    {
+                        common_acceptable_overlaps.insert(
+                            partitioned_modules[i].acceptable_overlaps.begin(),
+                            partitioned_modules[i].acceptable_overlaps.end());
+                        
+                        common_acceptable_overlaps.insert(
+                            partitioned_modules[j].acceptable_overlaps.begin(),
+                            partitioned_modules[j].acceptable_overlaps.end());
+                    }
+
+                    std::set<RTLIL::Cell*> common_cells;
+                    for (RTLIL::Cell* i_cell: partitioned_modules[i].cells) {
+                        if (partitioned_modules[j].cells.count(i_cell) && (common_acceptable_overlaps.count(i_cell) == 0)) {
+                            common_cells.insert(i_cell);
+                        }
+                    }
+
+                    size_t intersect_size = common_cells.size();
                     interference[i][j] = intersect_size;
-                    log("Cross interference with Module %d: %ld\n", j, intersect_size);
+                    if (i == log_idx) {
+                        log("Cross interference with Module %d: %ld\n", j, intersect_size);
+                        // for (RTLIL::Cell* union_cell: union_cells) {
+                        //     if (partitioned_modules[i].cells.count(union_cell) && partitioned_modules[j].cells.count(union_cell)) {
+                        //         log("%s\n", log_id(union_cell));
+                        //     }
+                        // }
+                        log('\n');
+                    }
                 }
             }
         };
-        compute_interference();
 
         for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+            compute_interference(i);
+        }
+
+        // Iterative all modules, find the module with the lowest leaky degree
+        std::map<int, std::set<int>> leaky_iface_list;
+        // Populate leaky degree
+        for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+            // Find all adjacent modules
             for (int j = 0; j < GetSize(partitioned_modules); ++j) {
                 if (i == j) {
                     continue;
@@ -1402,64 +1717,255 @@ struct ValidReadyPass : public Pass {
 
                 // Reject multi-connect modules
                 if (adjacent_handshakes.size() > 1) {
-                    log("Found multi-connect module\n");
+                    log_error("Found multi-connect module\n");
                     continue;
                 }
-                ValidReadyProto handshake_proto = *adjacent_handshakes.begin();
 
-                log("Adjust module %d and %d\n", i, j);
-
-                while (interference[i][j] > 0) {
-                    // Retrieve existing data interface
-                    std::set<Wire> data_interface = std::get<2>(handshake_proto);
-
-                    // Retrieve subgraph
-                    log("Retrieve handshake\n");
-                    Handshake hs = handshake_map.at(handshake_proto);
-                    log("Retrieve successful\n");
-                    std::set<std::shared_ptr<DataElement>> subgraph = finalized_subgraphs.at(hs);
-                    log("Retrieve subgraph successful\n");
-
-                    std::set<RTLIL::Cell*> old_iface_cells;
-                    for (auto [_from_cell, to_cell]: data_interface) {
-                        old_iface_cells.insert(std::get<0>(to_cell));
+                if (interference[i][j] > 0) {
+                    if (leaky_iface_list.count(i) == 0) {
+                        leaky_iface_list[i] = {};
                     }
-
-                    // Advance the old frontier, and promote its inputs
-                    std::set<std::shared_ptr<DataElement>> new_elms = data_path.advance_frontier(subgraph, old_iface_cells);
-                    std::set<std::shared_ptr<DataElement>> new_frontier = data_path.promote_inputs(subgraph, new_elms);
-
-                    std::set<Wire> new_data_cut_if = data_path.get_intersection_wires(new_frontier);
-                    ValidReadyProto new_proto = {
-                        std::get<0>(handshake_proto),
-                        std::get<1>(handshake_proto),
-                        new_data_cut_if
-                    };
-
-                    log("New interface:\n");
-                    for (const auto& [from_cell, to_cell]: new_data_cut_if) {
-                        log("%s:%s:%d\n", log_id(std::get<0>(from_cell)), log_id(std::get<1>(from_cell)), std::get<2>(from_cell));
-                    }
-
-                    if (data_interface == new_data_cut_if) {
-                        log_error("Data interface failed to advance\n");
-                    }
-
-                    // Update info
-                    handshake_map.erase(handshake_proto);
-                    handshake_map.insert({new_proto, hs});
-                    handshake_proto = new_proto;
-
-                    vr_modules.inner[i].update_data_interface(hs, new_data_cut_if);
-                    vr_modules.inner[j].update_data_interface(hs, new_data_cut_if);
-
-                    partitioned_modules[i] = vr_module_to_partition(vr_modules.inner[i]);
-                    partitioned_modules[j] = vr_module_to_partition(vr_modules.inner[j]);
-
-                    compute_interference();
+                    leaky_iface_list[i].insert(j);
                 }
             }
         }
+
+        // Find the module that has the minimum leaky degree, but non-zero
+        while (!leaky_iface_list.empty()) {
+            int simplest_module_idx = -1;
+            int lowest_leaky_degree = std::numeric_limits<int>::max();
+            std::set<int> adjacent_leaky_modules;
+
+            for (auto [module_idx, adjacent_idxes]: leaky_iface_list) {
+                int leaky_adjacencies = GetSize(adjacent_idxes);
+                log("Module %d has %d leaky interfaces\n", module_idx, leaky_adjacencies);
+                if (leaky_adjacencies < lowest_leaky_degree) {
+                    simplest_module_idx = module_idx;
+                    lowest_leaky_degree = leaky_adjacencies;
+                    adjacent_leaky_modules = adjacent_idxes;
+                }
+            }
+
+            log("Resolve module %d\n", simplest_module_idx);
+
+            // Collect handshakes
+            std::map<int, std::pair<ValidReadyProto, Handshake>> handshake_entries;
+            for (int adjacent_module_idx: adjacent_leaky_modules) {
+                ValidReadyProto handshake_proto = *(partitioned_modules[simplest_module_idx].adjacent_interfaces(
+                    partitioned_modules[adjacent_module_idx]).begin());
+                Handshake hs = handshake_map.at(handshake_proto);
+                // // Retrieve handshake
+                // Handshake hs = handshake_map.at(handshake_proto);
+
+                // std::set<Wire> wire_interface = std::get<2>(handshake_proto);
+                // // Convert junction back to data elms
+                // std::set<std::shared_ptr<DataElement>> old_iface_elms;
+                // for (auto [_from_cell, to_cell]: data_interface) {
+                //     old_iface_elms.insert(
+                //         data_path.acyclic_node_map.at(std::get<0>(to_cell)));
+                // }
+
+                handshake_entries.insert({adjacent_module_idx, {handshake_proto, hs}});
+            }
+
+            // Retrieve the handshakes protocol entry that represent the adjacent edges
+            // Use it to populate the possible data interfaces location list
+            std::vector<std::vector<std::tuple<int, ValidReadyProto, Handshake, std::set<std::shared_ptr<DataElement>>>>> adjust_vectors;
+            for (auto [adj_module_idx, vr_info]: handshake_entries) {
+                auto [adj_proto, adj_hs] = vr_info;
+                adj_hs.write_log();
+                if (adjust_vectors.empty()) {
+                    // std::map<Handshake, std::set<std::shared_ptr<DataElement>>> new_entry;
+                    // new_entry[adj_hs] = frontier_collections.at(adj_hs);
+                    // adjust_vectors.push_back(new_entry);
+
+                    for (std::set<std::shared_ptr<DataElement>> frontier: frontier_collections.at(adj_hs)) {
+                        std::vector<std::tuple<int, ValidReadyProto, Handshake, std::set<std::shared_ptr<DataElement>>>> new_vector;
+                        new_vector.push_back({
+                            adj_module_idx, adj_proto, adj_hs, frontier
+                        });
+                        adjust_vectors.push_back(new_vector);
+                    }
+                } else {
+                    // Generate every entry in the adjust vector by a different frontier of this new handshake
+                    std::vector<std::vector<std::tuple<int, ValidReadyProto, Handshake, std::set<std::shared_ptr<DataElement>>>>> augmented_vectors;
+                    for (std::set<std::shared_ptr<DataElement>> frontier: frontier_collections.at(adj_hs)) {
+                        for (auto vector_entry: adjust_vectors) {
+                            // std::map<Handshake, std::set<std::shared_ptr<DataElement>>> new_entry = vector_entry;
+                            // new_entry.insert({adj_hs, frontier});
+                            // augmented_vectors.push_back(new_entry);
+
+                            vector_entry.push_back({
+                                adj_module_idx, adj_proto, adj_hs, frontier
+                            });
+                            augmented_vectors.push_back(vector_entry);
+                        }
+                    }
+                    // Replace the original vector
+                    adjust_vectors = augmented_vectors;
+                }
+            }
+            log("Adjust vector size: %d\n", GetSize(adjust_vectors));
+
+            // Brute force apply all possible vectors
+            bool found_suitable_vector = false;
+            for (const auto& data_vector: adjust_vectors) {
+                // Update all interface according to the data vector first
+                for (auto [adj_module_idx, old_proto, hs, new_frontier]: data_vector) {
+                    log("New frontier size to module %d: %d\n", adj_module_idx, GetSize(new_frontier));
+                    std::set<Wire> new_data_cut_if = data_path.get_intersection_wires(new_frontier);
+
+                    vr_modules.inner[simplest_module_idx].update_data_interface(hs, new_data_cut_if);
+                    vr_modules.inner[adj_module_idx].update_data_interface(hs, new_data_cut_if);
+                }
+                
+                // Then, regenerate the partition
+                for (auto [adj_module_idx, old_proto, hs, new_frontier]: data_vector) {
+                    partitioned_modules[simplest_module_idx] = vr_module_to_partition(vr_modules.inner[simplest_module_idx], vr_modules);
+                    partitioned_modules[adj_module_idx] = vr_module_to_partition(vr_modules.inner[adj_module_idx], vr_modules);
+                }
+
+                // Recalculate interference after applying every vector
+                compute_interference(simplest_module_idx);
+                bool interfere_other_module = false;
+                for (int adj_idx: adjacent_leaky_modules) {
+                    // Defensive programming
+                    // Technically it is not needed since module cannot self connect
+                    if (simplest_module_idx == adj_idx) {
+                        continue;
+                    }
+                    if (interference[simplest_module_idx][adj_idx] != 0) {
+                        interfere_other_module = true;
+                        break;
+                    }
+                }
+
+                if (!interfere_other_module) {
+                    // Update
+                    for (auto [adj_module_idx, old_proto, hs, new_frontier]: data_vector) {
+                        std::set<Wire> new_data_cut_if = data_path.get_intersection_wires(new_frontier);
+
+                        ValidReadyProto new_proto = {
+                            std::get<0>(old_proto),
+                            std::get<1>(old_proto),
+                            new_data_cut_if
+                        };
+
+                        handshake_map.erase(old_proto);
+                        handshake_map.insert({new_proto, hs});
+                    }
+
+                    // Remove resolved modules
+                    leaky_iface_list.erase(simplest_module_idx);
+
+                    // The resolved module should not be leaky to any other modules as well
+                    std::set<int> unleaked_module_sources;
+                    for (auto& [leaky_src_mod, leaky_sink_mod]: leaky_iface_list) {
+                        if (leaky_sink_mod.count(simplest_module_idx) != 0) {
+                            leaky_sink_mod.erase(simplest_module_idx);
+                        }
+                        if (leaky_sink_mod.empty()) {
+                            unleaked_module_sources.insert(leaky_src_mod);
+                        }
+                    }
+
+                    // Cleanup
+                    for (int unleaked: unleaked_module_sources) {
+                        leaky_iface_list.erase(unleaked);
+                    }
+
+                    found_suitable_vector = true;
+                    break;
+                    log("\n\n\n");
+                }
+            }
+
+            if (!found_suitable_vector) {
+                log("No suitable datapath interface sampled\n");
+                return;
+            }
+        }
+
+        log("\n\n");
+        log("Data interface fixed:\n");
+        for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+            compute_interference(i);
+        }
+
+        // for (int i = 0; i < GetSize(partitioned_modules); ++i) {
+        //     for (int j = 0; j < GetSize(partitioned_modules); ++j) {
+        //         if (i == j) {
+        //             continue;
+        //         }
+
+        //         std::set<ValidReadyProto> adjacent_handshakes = partitioned_modules[i].adjacent_interfaces(partitioned_modules[j]);
+        //         if (adjacent_handshakes.empty()) {
+        //             continue;
+        //         }
+
+        //         // Reject multi-connect modules
+        //         if (adjacent_handshakes.size() > 1) {
+        //             log("Found multi-connect module\n");
+        //             continue;
+        //         }
+        //         ValidReadyProto handshake_proto = *adjacent_handshakes.begin();
+
+        //         log("Adjust module %d and %d\n", i, j);
+
+        //         while (interference[i][j] > 0) {
+        //             // Retrieve existing data interface
+        //             std::set<Wire> data_interface = std::get<2>(handshake_proto);
+
+        //             // Retrieve subgraph
+        //             log("Retrieve handshake\n");
+        //             Handshake hs = handshake_map.at(handshake_proto);
+        //             log("Retrieve successful\n");
+        //             std::set<std::shared_ptr<DataElement>> subgraph = initial_subgraphs.at(hs);
+        //             log("Retrieve subgraph successful\n");
+
+        //             std::set<std::shared_ptr<DataElement>> old_iface_elms;
+        //             for (auto [_from_cell, to_cell]: data_interface) {
+        //                 old_iface_elms.insert(
+        //                     data_path.acyclic_node_map.at(std::get<0>(to_cell)));
+        //             }
+
+        //             // Advance the old frontier, and promote its inputs
+        //             std::set<std::shared_ptr<DataElement>> new_elms = data_path.advance_frontier(subgraph, old_iface_elms);
+        //             log("New input elements: %d\n", GetSize(new_elms));
+        //             std::set<std::shared_ptr<DataElement>> new_frontier = data_path.promote_inputs(subgraph, new_elms);
+        //             log("New frontier width: %d\n", GetSize(new_frontier));
+
+        //             std::set<Wire> new_data_cut_if = data_path.get_intersection_wires(new_frontier);
+        //             ValidReadyProto new_proto = {
+        //                 std::get<0>(handshake_proto),
+        //                 std::get<1>(handshake_proto),
+        //                 new_data_cut_if
+        //             };
+
+        //             log("New interface:\n");
+        //             for (const auto& [from_cell, to_cell]: new_data_cut_if) {
+        //                 log("%s:%s:%d\n", log_id(std::get<0>(from_cell)), log_id(std::get<1>(from_cell)), std::get<2>(from_cell));
+        //             }
+
+        //             if (data_interface == new_data_cut_if) {
+        //                 log_error("Data interface failed to advance\n");
+        //             }
+
+        //             // Update info
+        //             handshake_map.erase(handshake_proto);
+        //             handshake_map.insert({new_proto, hs});
+        //             handshake_proto = new_proto;
+
+        //             vr_modules.inner[i].update_data_interface(hs, new_data_cut_if);
+        //             vr_modules.inner[j].update_data_interface(hs, new_data_cut_if);
+
+        //             partitioned_modules[i] = vr_module_to_partition(vr_modules.inner[i]);
+        //             partitioned_modules[j] = vr_module_to_partition(vr_modules.inner[j]);
+
+        //             compute_interference(-1);
+        //         }
+        //     }
+        // }
 
         for (int i = 0; i < GetSize(partitioned_modules); ++i) {
             std::stringstream ss;
